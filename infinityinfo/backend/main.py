@@ -25,12 +25,15 @@ load_dotenv()
 
 app = FastAPI(title="InfinityInfo API")
 allowed_origins = [
-    origin.strip()
-    for origin in os.getenv(
-        "CORS_ALLOWED_ORIGINS",
-        "http://localhost:5500,http://127.0.0.1:5500,null",
-    ).split(",")
-    if origin.strip()
+    "https://infinityinfo1-infinityinfo.vercel.app",
+    *[
+        origin.strip()
+        for origin in os.getenv(
+            "CORS_ALLOWED_ORIGINS",
+            "http://localhost:5500,http://127.0.0.1:5500,null",
+        ).split(",")
+        if origin.strip()
+    ],
 ]
 app.add_middleware(
     CORSMiddleware,
