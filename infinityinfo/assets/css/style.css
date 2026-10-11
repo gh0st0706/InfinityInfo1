@@ -865,6 +865,23 @@ preloader
     z-index: 9999;
     -webkit-transition: opacity 0.25s ease;
     transition: opacity 0.25s ease;
+    /* Prevent a stalled resource or load event from blocking page controls. */
+    -webkit-animation: preloader-failsafe 0s linear 5s forwards;
+    animation: preloader-failsafe 0s linear 5s forwards;
+}
+
+@-webkit-keyframes preloader-failsafe {
+    to {
+        opacity: 0;
+        visibility: hidden;
+    }
+}
+
+@keyframes preloader-failsafe {
+    to {
+        opacity: 0;
+        visibility: hidden;
+    }
 }
 
 .js-preloader.loaded {

@@ -327,7 +327,14 @@ async def upload_file(file: UploadFile = File(...)):
 
     if extension == ".csv":
         try:
-            text = raw.decode("utf-8-sig")
+            # Excel commonly exports CSV files using the Windows code page.
+            # Keep UTF-8 (including BOM) as the preferred encoding, but accept
+            # those files too so accented names do not prevent an upload.
+            try:
+                text = raw.decode("utf-8-sig")
+            except UnicodeDecodeError:
+                text = raw.decode("cp1252")
+
             reader = csv.DictReader(io.StringIO(text))
 
             if not reader.fieldnames:
@@ -344,11 +351,6 @@ async def upload_file(file: UploadFile = File(...)):
                 )
 
             rows = list(reader)
-        except UnicodeDecodeError:
-            raise HTTPException(
-                status_code=400,
-                detail="CSV must use UTF-8 encoding",
-            )
     else:
         try:
             headers, rows = read_excel(raw, extension)
