@@ -76,12 +76,6 @@ HUNTER_API_KEY = load_hunter_api_key()
 HUNTER_URL = "https://api.hunter.io/v2/email-finder"
 MAX_UPLOAD_BYTES = 4 * 1024 * 1024
 
-# Vercel serves the site from its CDN while routing API requests through this
-# FastAPI application. Keep this conditional so Render remains usable during
-# rollback or local deployment.
-if os.getenv("VERCEL"):
-    app.frontend("/", directory="public")
-
 REQUIRED_COLUMNS = {
     "First Name",
     "Last Name",
