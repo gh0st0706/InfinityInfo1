@@ -1,20 +1,15 @@
 (function () {
   "use strict";
 
-  // Change this URL if the API is running on another machine or port.
-  const API_BASE_URL = window.INFINITYINFO_API_URL || "http://127.0.0.1:8000";
+  // Use the same-origin Vercel API by default. Override for local development.
+  const API_BASE_URL = window.INFINITYINFO_API_URL || "/api";
   const apiStatus = document.getElementById("api-status");
   const statusIndicator = document.querySelector(".api-status-indicator");
   const form = document.getElementById("email-lookup-form");
   const fileInput = document.getElementById("contact-file");
-  const browseFileButton = document.getElementById("browse-contact-file");
   const fileNameStatus = document.getElementById("contact-file-name");
   const uploadStatus = document.getElementById("upload-status");
   const submitButton = document.getElementById("upload-submit");
-
-  browseFileButton.addEventListener("click", function () {
-    fileInput.click();
-  });
 
   fileInput.addEventListener("change", function () {
     const file = fileInput.files[0];
@@ -29,8 +24,13 @@
 
   async function checkBackend() {
     try {
-      const response = await fetch(`${API_BASE_URL}/`, { method: "GET" });
+      const response = await fetch(`${API_BASE_URL}/health`, { method: "GET" });
       if (!response.ok) throw new Error("Backend returned an error");
+      const health = await response.json();
+      if (!health.hunter_api_configured) {
+        setApiStatus(false, "Backend needs HUNTER_API_KEY in Vercel settings");
+        return;
+      }
       setApiStatus(true, "Backend connected");
     } catch (error) {
       setApiStatus(false, "Backend not reachable · Start the API on port 8000");
@@ -46,6 +46,11 @@
     const file = fileInput.files[0];
     if (!file) {
       uploadStatus.textContent = "Choose a CSV or Excel file first.";
+      return;
+    }
+
+    if (file.size > 4 * 1024 * 1024) {
+      uploadStatus.textContent = "Choose a file that is 4 MB or smaller.";
       return;
     }
 

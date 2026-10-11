@@ -1,0 +1,6 @@
+fastapi
+httpx
+openpyxl
+python-dotenv
+python-multipart
+xlrd

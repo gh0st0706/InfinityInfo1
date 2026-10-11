@@ -74,6 +74,13 @@ app.add_middleware(
 
 HUNTER_API_KEY = load_hunter_api_key()
 HUNTER_URL = "https://api.hunter.io/v2/email-finder"
+MAX_UPLOAD_BYTES = 4 * 1024 * 1024
+
+# Vercel serves the site from its CDN while routing API requests through this
+# FastAPI application. Keep this conditional so Render remains usable during
+# rollback or local deployment.
+if os.getenv("VERCEL"):
+    app.frontend("/", directory="public")
 
 REQUIRED_COLUMNS = {
     "First Name",
@@ -156,12 +163,28 @@ async def find_with_hunter(client, first_name, last_name, domain):
     }
 
 
-@app.get("/")
+@app.get("/health")
+@app.get("/api/health")
 def home():
-    return {"message": "InfinityInfo API is running"}
+    return {
+        "message": "InfinityInfo API is running",
+        "hunter_api_configured": bool(HUNTER_API_KEY),
+    }
+
+
+# Keep the existing Render health check working during the migration. Vercel
+# serves public/index.html at /, so the API root is intentionally omitted there.
+if not os.getenv("VERCEL"):
+    app.add_api_route(
+        "/",
+        home,
+        methods=["GET"],
+        include_in_schema=False,
+    )
 
 
 @app.post("/find-email")
+@app.post("/api/find-email")
 async def find_email(search: EmailSearch):
     if not HUNTER_API_KEY:
         raise HTTPException(
@@ -303,6 +326,8 @@ def make_xlsx(headers, rows):
 
 @app.post("/upload-csv")
 @app.post("/upload")
+@app.post("/api/upload-csv")
+@app.post("/api/upload")
 async def upload_file(file: UploadFile = File(...)):
     extension = os.path.splitext(file.filename or "")[1].lower()
     if extension not in {".csv", ".xlsx", ".xls"}:
@@ -319,10 +344,10 @@ async def upload_file(file: UploadFile = File(...)):
 
     raw = await file.read()
 
-    if len(raw) > 10 * 1024 * 1024:
+    if len(raw) > MAX_UPLOAD_BYTES:
         raise HTTPException(
             status_code=413,
-            detail="File must be 10 MB or smaller",
+            detail="File must be 4 MB or smaller on Vercel",
         )
 
     if extension == ".csv":
