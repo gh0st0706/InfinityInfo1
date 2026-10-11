@@ -2,10 +2,11 @@
 import csv
 import io
 import os
+from pathlib import Path
 from urllib.parse import urlparse
 
 import httpx
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -22,6 +23,34 @@ except ImportError:
     xlrd = None
 
 load_dotenv()
+
+
+def load_hunter_api_key():
+    key = os.getenv("HUNTER_API_KEY", "").strip()
+    if key:
+        return key
+
+    app_directory = Path(__file__).resolve().parent
+    for key_file in (
+        Path("/etc/secrets/HUNTER_API_KEY"),
+        app_directory / "HUNTER_API_KEY",
+    ):
+        try:
+            key = key_file.read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+        if key:
+            return key
+
+    for env_file in (
+        Path("/etc/secrets/.env"),
+        app_directory / ".env",
+    ):
+        key = (dotenv_values(env_file).get("HUNTER_API_KEY") or "").strip()
+        if key:
+            return key
+
+    return ""
 
 app = FastAPI(title="InfinityInfo API")
 allowed_origins = [
@@ -43,7 +72,7 @@ app.add_middleware(
     expose_headers=["Content-Disposition"],
 )
 
-HUNTER_API_KEY = os.getenv("HUNTER_API_KEY")
+HUNTER_API_KEY = load_hunter_api_key()
 HUNTER_URL = "https://api.hunter.io/v2/email-finder"
 
 REQUIRED_COLUMNS = {
