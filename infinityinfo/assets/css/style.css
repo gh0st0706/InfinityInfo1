@@ -756,6 +756,85 @@ header
   }
 }
 
+.email-lookup {
+  padding: 100px 0;
+  background: #f7f7f7;
+}
+
+.email-lookup .section-heading p {
+  margin-top: 20px;
+}
+
+.email-lookup-card {
+  padding: 36px;
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+}
+
+.api-status-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 24px;
+  color: #666;
+  font-size: 14px;
+}
+
+.api-status-indicator {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #d9534f;
+}
+
+.api-status-indicator.is-connected {
+  background: #20a66a;
+}
+
+.upload-label {
+  display: block;
+  margin-bottom: 10px;
+  color: #2a2a2a;
+  font-weight: 600;
+}
+
+#contact-file {
+  display: block;
+  width: 100%;
+  padding: 14px;
+  border: 1px dashed #d5d5d5;
+  border-radius: 12px;
+  background: #fafafa;
+}
+
+.upload-help {
+  margin: 10px 0;
+  color: #777;
+  font-size: 13px;
+}
+
+#upload-submit {
+  margin-top: 16px;
+}
+
+#upload-submit:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+#upload-status {
+  min-height: 24px;
+  margin: 18px 0 0;
+  color: #555;
+}
+
+@media (max-width: 767px) {
+  .email-lookup-card {
+    padding: 24px;
+  }
+}
+
 @media (min-width: 767px) {
   .header-area .main-nav .nav {
     display: flex !important;

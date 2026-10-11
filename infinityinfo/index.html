@@ -77,6 +77,7 @@
               <li class="scroll-to-section"><a href="#top" class="active">Home</a></li>
               <li class="scroll-to-section"><a href="#about">About</a></li>
               <li class="scroll-to-section"><a href="#services">Services</a></li>
+              <li class="scroll-to-section"><a href="#email-lookup">Email Lookup</a></li>
               <li class="scroll-to-section"><a href="#contact">Contact</a></li> 
               <li class="scroll-to-section"><div class="border-first-button"><a href="#contact">Free Quote</a></div></li> 
             </ul>        
@@ -316,6 +317,35 @@
     </div>
   </div>
 
+  <section id="email-lookup" class="email-lookup section">
+    <div class="container">
+      <div class="row">
+        <div class="col-lg-8 offset-lg-2">
+          <div class="section-heading text-center">
+            <h6>Email Appending</h6>
+            <h4>Enrich Your <em>Contact List</em></h4>
+            <div class="line-dec"></div>
+            <p>Upload a CSV or Excel file and download the enriched results.</p>
+          </div>
+          <div class="email-lookup-card">
+            <div class="api-status-row">
+              <span class="api-status-indicator" aria-hidden="true"></span>
+              <span id="api-status" role="status" aria-live="polite">Checking backend connection…</span>
+            </div>
+            <form id="email-lookup-form">
+              <label class="upload-label" for="contact-file">Choose a contact file</label>
+              <input id="contact-file" name="file" type="file" accept=".csv,.xlsx,.xls" required>
+              <p class="upload-help">CSV, XLSX, or XLS · Up to 10 MB · Maximum 1,000 rows</p>
+              <p class="upload-help">Include these columns: First Name, Last Name, Full Name, Company Website, Email, Email Status.</p>
+              <button class="main-button" id="upload-submit" type="submit">Upload and Enrich</button>
+            </form>
+            <p id="upload-status" role="status" aria-live="polite"></p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   
   <div id="free-quote" class="free-quote">
     <div class="container">
@@ -450,6 +480,8 @@
   <script src="assets/js/animation.js"></script>
   <script src="assets/js/imagesloaded.js"></script>
   <script src="assets/js/custom.js"></script>
+  <script src="assets/js/deployment-config.js"></script>
+  <script src="assets/js/backend.js"></script>
 
 </body>
 </html>
