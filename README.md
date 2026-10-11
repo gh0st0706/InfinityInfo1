@@ -1,6 +1,6 @@
 # InfinityInfo
 
-InfinityInfo is a lead-enrichment tool that takes an existing CSV or Excel file of company/contact information, finds candidate email addresses for the supplied records, and returns an enriched file for download.
+this is a lead-enrichment tool that takes an existing CSV or Excel file of company/contact information, finds candidate email addresses for the supplied records, and returns an enriched file for download.
 
 ## Architecture
 
