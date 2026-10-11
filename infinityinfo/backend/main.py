@@ -376,6 +376,13 @@ async def upload_file(file: UploadFile = File(...)):
                 )
 
             rows = list(reader)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(
+                status_code=400,
+                detail="Could not read the CSV file",
+            ) from exc
     else:
         try:
             headers, rows = read_excel(raw, extension)
