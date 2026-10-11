@@ -44,7 +44,7 @@
     uploadStatus.textContent = "Uploading your file and looking up missing email addresses…";
 
     try {
-      const response = await fetch(`${API_BASE_URL}/upload`, {
+      const response = await fetch(`${API_BASE_URL}/upload-csv`, {
         method: "POST",
         body: formData
       });
