@@ -7,8 +7,20 @@
   const statusIndicator = document.querySelector(".api-status-indicator");
   const form = document.getElementById("email-lookup-form");
   const fileInput = document.getElementById("contact-file");
+  const browseFileButton = document.getElementById("browse-contact-file");
+  const fileNameStatus = document.getElementById("contact-file-name");
   const uploadStatus = document.getElementById("upload-status");
   const submitButton = document.getElementById("upload-submit");
+
+  browseFileButton.addEventListener("click", function () {
+    fileInput.click();
+  });
+
+  fileInput.addEventListener("change", function () {
+    const file = fileInput.files[0];
+    fileNameStatus.textContent = file ? `Selected: ${file.name}` : "No file selected";
+    uploadStatus.textContent = "";
+  });
 
   function setApiStatus(connected, message) {
     apiStatus.textContent = message;

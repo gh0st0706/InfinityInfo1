@@ -334,6 +334,8 @@
             </div>
             <form id="email-lookup-form">
               <label class="upload-label" for="contact-file">Choose a contact file</label>
+              <button class="file-picker-button" id="browse-contact-file" type="button">Browse files</button>
+              <span id="contact-file-name" role="status" aria-live="polite">No file selected</span>
               <input id="contact-file" name="file" type="file" accept=".csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.xls,application/vnd.ms-excel" required>
               <p class="upload-help">CSV, XLSX, or XLS · Up to 10 MB · Maximum 1,000 rows</p>
               <p class="upload-help">Include these columns: First Name, Last Name, Full Name, Company Website, Email, Email Status.</p>

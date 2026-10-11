@@ -799,6 +799,22 @@ header
   font-weight: 600;
 }
 
+.file-picker-button {
+  margin: 0 10px 10px 0;
+  padding: 10px 16px;
+  border: 1px solid #d5d5d5;
+  border-radius: 8px;
+  background: #f7f7f7;
+  color: #2a2a2a;
+  font: inherit;
+  cursor: pointer;
+}
+
+#contact-file-name {
+  color: #666;
+  font-size: 14px;
+}
+
 #contact-file {
   display: block;
   width: 100%;
@@ -848,40 +864,7 @@ preloader
 */
 
 .js-preloader {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background-color: #fff;
-    display: -webkit-box;
-    display: flex;
-    -webkit-box-align: center;
-    align-items: center;
-    -webkit-box-pack: center;
-    justify-content: center;
-    opacity: 1;
-    visibility: visible;
-    z-index: 9999;
-    -webkit-transition: opacity 0.25s ease;
-    transition: opacity 0.25s ease;
-    /* Prevent a stalled resource or load event from blocking page controls. */
-    -webkit-animation: preloader-failsafe 0s linear 5s forwards;
-    animation: preloader-failsafe 0s linear 5s forwards;
-}
-
-@-webkit-keyframes preloader-failsafe {
-    to {
-        opacity: 0;
-        visibility: hidden;
-    }
-}
-
-@keyframes preloader-failsafe {
-    to {
-        opacity: 0;
-        visibility: hidden;
-    }
+    display: none;
 }
 
 .js-preloader.loaded {
