@@ -792,6 +792,87 @@ header
   background: #20a66a;
 }
 
+.finder-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.finder-field input {
+  display: block;
+  width: 100%;
+  min-height: 50px;
+  padding: 12px 14px;
+  border: 1px solid #d5d5d5;
+  border-radius: 8px;
+  background: #fff;
+  color: #2a2a2a;
+  font: inherit;
+}
+
+.finder-field input:focus {
+  border-color: #4771e6;
+  outline: 3px solid rgba(71, 113, 230, 0.15);
+}
+
+#person-finder-submit {
+  margin-top: 12px;
+}
+
+#person-finder-submit:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.finder-result {
+  margin-top: 24px;
+  padding: 18px 20px;
+  border: 1px solid #dce4f4;
+  border-radius: 12px;
+  background: #f7f9fe;
+  color: #333;
+}
+
+.finder-result[hidden] {
+  display: none;
+}
+
+.finder-result.is-success {
+  border-color: #b8e2cb;
+  background: #f2fbf6;
+}
+
+.finder-result.is-caution {
+  border-color: #f0d8a4;
+  background: #fffaf0;
+}
+
+.finder-result.is-error {
+  border-color: #efc2c2;
+  background: #fff6f6;
+}
+
+.finder-result p {
+  margin: 8px 0 0;
+  font-size: 14px;
+}
+
+.finder-email-address {
+  margin-top: 8px;
+  color: #252f4a;
+  font-size: 20px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.bulk-heading {
+  margin-top: 72px;
+}
+
+.bulk-lookup-card {
+  margin-top: 24px;
+}
+
 .upload-label {
   display: block;
   margin-bottom: 10px;
@@ -848,6 +929,11 @@ header
 @media (max-width: 767px) {
   .email-lookup-card {
     padding: 24px;
+  }
+
+  .finder-fields {
+    grid-template-columns: 1fr;
+    gap: 12px;
   }
 }
 

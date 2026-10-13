@@ -6,6 +6,9 @@
   const apiStatus = document.getElementById("api-status");
   const statusIndicator = document.querySelector(".api-status-indicator");
   const form = document.getElementById("email-lookup-form");
+  const finderForm = document.getElementById("person-finder-form");
+  const finderButton = document.getElementById("person-finder-submit");
+  const finderResult = document.getElementById("person-finder-result");
   const fileInput = document.getElementById("contact-file");
   const fileNameStatus = document.getElementById("contact-file-name");
   const uploadStatus = document.getElementById("upload-status");
@@ -27,17 +30,77 @@
       const response = await fetch(`${API_BASE_URL}/health`, { method: "GET" });
       if (!response.ok) throw new Error("Backend returned an error");
       const health = await response.json();
-      if (!health.hunter_api_configured) {
-        setApiStatus(false, "Backend needs HUNTER_API_KEY in Vercel settings");
+      if (!health.public_lookup_available) {
+        setApiStatus(false, "Email finder is unavailable right now");
         return;
       }
-      setApiStatus(true, "Backend connected");
+      setApiStatus(true, "Email finder ready");
     } catch (error) {
       setApiStatus(false, "Backend not reachable · Start the API on port 8000");
     }
   }
 
   checkBackend();
+
+  function showFinderResult(title, detail, email, state) {
+    finderResult.hidden = false;
+    finderResult.className = `finder-result is-${state}`;
+    finderResult.replaceChildren();
+
+    const heading = document.createElement("strong");
+    heading.textContent = title;
+    finderResult.appendChild(heading);
+
+    if (email) {
+      const address = document.createElement("div");
+      address.className = "finder-email-address";
+      address.textContent = email;
+      finderResult.appendChild(address);
+    }
+
+    const note = document.createElement("p");
+    note.textContent = detail;
+    finderResult.appendChild(note);
+  }
+
+  finderForm.addEventListener("submit", async function (event) {
+    event.preventDefault();
+    finderResult.hidden = true;
+    const fullName = document.getElementById("person-full-name").value.trim();
+    const company = document.getElementById("person-company").value.trim();
+    if (fullName.split(/\s+/).length < 2) {
+      showFinderResult("Add a first and last name", "Enter the person’s full name to search.", "", "error");
+      return;
+    }
+
+    finderButton.disabled = true;
+    finderButton.textContent = "Searching…";
+    showFinderResult("Checking public company information…", "We look for published addresses and company mail setup.", "", "loading");
+    try {
+      const response = await fetch(`${API_BASE_URL}/email-finder`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ full_name: fullName, company })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.detail || "The lookup could not be completed.");
+
+      if (result.result === "found_publicly") {
+        showFinderResult("Email found on a public company page", "This address was published on the company’s website. Domain mail records were also found.", result.email, "success");
+      } else if (result.result === "pattern_candidate") {
+        showFinderResult("Possible address pattern", "This is an unverified guess based on a format clue from public company addresses. We could not confirm that this mailbox exists.", result.email, "caution");
+      } else if (result.result === "no_mail_server") {
+        showFinderResult("No company mail server found", "The domain did not publish mail-server records, so we could not build a reliable result.", "", "empty");
+      } else {
+        showFinderResult("No public match found", "We did not find this person’s address on the company pages we checked. No email was guessed.", "", "empty");
+      }
+    } catch (error) {
+      showFinderResult("Could not complete the lookup", error.message || "Check the domain and try again.", "", "error");
+    } finally {
+      finderButton.disabled = false;
+      finderButton.textContent = "Find email";
+    }
+  });
 
   form.addEventListener("submit", async function (event) {
     event.preventDefault();

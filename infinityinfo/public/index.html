@@ -322,16 +322,40 @@
       <div class="row">
         <div class="col-lg-8 offset-lg-2">
           <div class="section-heading text-center">
-            <h6>Email Appending</h6>
-            <h4>Enrich Your <em>Contact List</em></h4>
+            <h6>Email Finder</h6>
+            <h4>Find a Work <em>Email</em></h4>
             <div class="line-dec"></div>
-            <p>Upload a CSV or Excel file and download the enriched results.</p>
+            <p>Find a professional email address using a person’s name and company domain.</p>
           </div>
           <div class="email-lookup-card">
             <div class="api-status-row">
               <span class="api-status-indicator" aria-hidden="true"></span>
               <span id="api-status" role="status" aria-live="polite">Checking backend connection…</span>
             </div>
+            <form id="person-finder-form" class="person-finder-form">
+              <div class="finder-fields">
+                <div class="finder-field">
+                  <label class="upload-label" for="person-full-name">Full name</label>
+                  <input id="person-full-name" name="full_name" type="text" autocomplete="name" placeholder="Ada Lovelace" required>
+                </div>
+                <div class="finder-field">
+                  <label class="upload-label" for="person-company">Company website or domain</label>
+                  <input id="person-company" name="company" type="text" autocomplete="url" placeholder="example.com" required>
+                </div>
+              </div>
+              <p class="upload-help">Use a company website such as example.com or https://example.com.</p>
+              <button class="main-button" id="person-finder-submit" type="submit">Find email</button>
+            </form>
+            <div id="person-finder-result" class="finder-result" role="status" aria-live="polite" hidden></div>
+          </div>
+
+          <div class="section-heading text-center bulk-heading">
+            <h6>Email Appending</h6>
+            <h4>Enrich a <em>Contact List</em></h4>
+            <div class="line-dec"></div>
+            <p>Upload a CSV or Excel file and download the enriched results.</p>
+          </div>
+          <div class="email-lookup-card bulk-lookup-card">
             <form id="email-lookup-form">
               <label class="upload-label" for="contact-file">Choose a contact file</label>
               <label class="file-picker-button" for="contact-file">Browse files</label>

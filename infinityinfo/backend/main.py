@@ -1,9 +1,16 @@
 
+import asyncio
 import csv
+import html.parser
+import ipaddress
 import io
 import os
+import re
+import socket
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
+
+import dns.asyncresolver
 
 import httpx
 from dotenv import dotenv_values, load_dotenv
@@ -92,6 +99,163 @@ class EmailSearch(BaseModel):
     domain: str
 
 
+class PersonFinderSearch(BaseModel):
+    full_name: str
+    company: str
+
+
+class PublicPageParser(html.parser.HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.text_parts = []
+        self.links = []
+
+    def handle_data(self, data):
+        self.text_parts.append(data)
+
+    def handle_starttag(self, tag, attrs):
+        if tag.lower() == "a":
+            href = dict(attrs).get("href", "")
+            if href:
+                self.links.append(href)
+                if href.lower().startswith("mailto:"):
+                    self.text_parts.append(href[7:].split("?", 1)[0])
+
+
+EMAIL_PATTERN = re.compile(r"[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?(?:\.[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?)+", re.I)
+
+
+def normalize_company_domain(value):
+    value = clean(value)
+    parsed = urlparse(value if "://" in value else f"https://{value}")
+    host = (parsed.hostname or "").lower().rstrip(".")
+    if host.startswith("www."):
+        host = host[4:]
+    if not host or "." not in host or len(host) > 253:
+        raise HTTPException(status_code=400, detail="Enter a valid company domain")
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        pass
+    else:
+        raise HTTPException(status_code=400, detail="Enter a company domain, not an IP address")
+    if any(not label or len(label) > 63 or not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", label) for label in host.split(".")):
+        raise HTTPException(status_code=400, detail="Enter a valid company domain")
+    return host
+
+
+async def assert_public_host(host):
+    try:
+        addresses = await asyncio.to_thread(
+            socket.getaddrinfo, host, 443, type=socket.SOCK_STREAM
+        )
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail="The company domain could not be resolved") from exc
+    if not addresses or any(not ipaddress.ip_address(item[4][0]).is_global for item in addresses):
+        raise HTTPException(status_code=400, detail="The company domain does not resolve to a public address")
+
+
+async def inspect_public_company_site(client, domain):
+    await assert_public_host(domain)
+    allowed_hosts = {domain}
+    urls = [f"https://{domain}/"]
+    try:
+        await assert_public_host(f"www.{domain}")
+    except HTTPException:
+        pass
+    else:
+        allowed_hosts.add(f"www.{domain}")
+        urls.append(f"https://www.{domain}/")
+    visited = set()
+    found = set()
+    for _ in range(5):
+        if not urls:
+            break
+        url = urls.pop(0)
+        parsed_url = urlparse(url)
+        if parsed_url.hostname not in allowed_hosts or url in visited:
+            continue
+        visited.add(url)
+        try:
+            async with client.stream("GET", url, headers={"User-Agent": "InfinityInfoEmailFinder/1.0"}) as response:
+                if response.status_code >= 400 or "html" not in response.headers.get("content-type", "").lower():
+                    continue
+                body = bytearray()
+                async for chunk in response.aiter_bytes():
+                    body.extend(chunk)
+                    if len(body) > 1_000_000:
+                        break
+            parser = PublicPageParser()
+            parser.feed(body.decode("utf-8", errors="ignore"))
+            found.update(email.lower() for email in EMAIL_PATTERN.findall(" ".join(parser.text_parts)))
+            for href in parser.links:
+                next_url = urljoin(url, href)
+                next_parsed = urlparse(next_url)
+                if (
+                    next_parsed.scheme in {"http", "https"}
+                    and next_parsed.hostname in allowed_hosts
+                    and next_parsed.port in {None, 80, 443}
+                    and not next_parsed.username
+                    and not next_parsed.password
+                    and next_url not in visited
+                ):
+                    urls.append(next_url.split("#", 1)[0])
+        except (httpx.HTTPError, ValueError):
+            continue
+    return sorted(email for email in found if email.rsplit("@", 1)[1] == domain)
+
+
+async def lookup_person_publicly(first_name, last_name, domain):
+    resolver = dns.asyncresolver.Resolver()
+    try:
+        mx_records = await resolver.resolve(domain, "MX", lifetime=4)
+        if all(record.exchange.to_text() == "." for record in mx_records):
+            return {"found": False, "email": "", "confidence": "", "validation": "", "result": "no_mail_server", "candidates": []}
+    except dns.resolver.NXDOMAIN:
+        return {"found": False, "email": "", "confidence": "", "validation": "", "result": "no_mail_server", "candidates": []}
+    except dns.resolver.NoAnswer:
+        # RFC 5321 permits an implicit MX: the domain itself accepts mail.
+        try:
+            await resolver.resolve(domain, "A", lifetime=3)
+        except dns.resolver.NoAnswer:
+            try:
+                await resolver.resolve(domain, "AAAA", lifetime=3)
+            except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
+                return {"found": False, "email": "", "confidence": "", "validation": "", "result": "no_mail_server", "candidates": []}
+    except (dns.resolver.NoNameservers, dns.exception.Timeout, dns.exception.DNSException) as exc:
+        raise HTTPException(status_code=503, detail="Could not check company mail records. Please try again.") from exc
+
+    async with httpx.AsyncClient(timeout=8, follow_redirects=False) as client:
+        public_emails = await inspect_public_company_site(client, domain)
+
+    first = first_name.casefold()
+    last = last_name.casefold()
+    direct_matches = [email for email in public_emails if email.split("@", 1)[0].replace(".", "").replace("_", "").replace("-", "") in {first + last, last + first}]
+    if direct_matches:
+        return {"found": True, "email": direct_matches[0], "confidence": "public_source", "validation": "domain_has_mx", "result": "found_publicly", "candidates": []}
+
+    separators = [".", "_", "-"]
+    sample_locals = [email.split("@", 1)[0] for email in public_emails]
+    observed_separator = next((separator for separator in separators if any(re.fullmatch(r"[a-z]+" + re.escape(separator) + r"[a-z]+", local) for local in sample_locals)), None)
+    if observed_separator:
+        candidate = f"{first}{observed_separator}{last}@{domain}"
+        confidence = "domain_format_clue"
+        result = "pattern_candidate"
+        candidates = [candidate]
+    elif public_emails:
+        candidate = f"{first}{last}@{domain}"
+        confidence = "low"
+        result = "pattern_candidate"
+        candidates = [candidate]
+    else:
+        candidate = ""
+        confidence = ""
+        result = "not_found_publicly"
+        candidates = []
+
+    return {"found": False, "email": candidate, "confidence": confidence, "validation": "domain_has_mx", "result": result, "candidates": candidates}
+
+
 def clean(value):
     return str(value).strip() if value is not None else ""
 
@@ -163,6 +327,7 @@ def home():
     return {
         "message": "InfinityInfo API is running",
         "hunter_api_configured": bool(HUNTER_API_KEY),
+        "public_lookup_available": True,
     }
 
 
@@ -198,6 +363,19 @@ async def find_email(search: EmailSearch):
         "name": f"{search.first_name} {search.last_name}",
         **result,
     }
+
+
+@app.post("/email-finder")
+@app.post("/api/email-finder")
+async def email_finder(search: PersonFinderSearch):
+    name_parts = clean(search.full_name).split()
+    if len(name_parts) < 2:
+        raise HTTPException(status_code=400, detail="Enter a first and last name")
+    if len(search.full_name) > 120:
+        raise HTTPException(status_code=400, detail="Name must be 120 characters or fewer")
+    domain = normalize_company_domain(search.company)
+    result = await lookup_person_publicly(name_parts[0], name_parts[-1], domain)
+    return {"name": clean(search.full_name), "domain": domain, **result}
 
 
 async def enrich_rows(headers, rows):
