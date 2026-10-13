@@ -382,6 +382,29 @@
         <div class="line-dec"></div>
         <p>Check individual numbers or clean a spreadsheet of business contacts.</p>
       </div>
+      <div id="phone-checker-fallback" class="phone-tool phone-fallback">
+        <section class="phone-panel">
+          <h4><span>01</span> Check one number</h4>
+          <form id="phone-checker-fallback-form">
+            <label for="phone-checker-fallback-country">Default country</label>
+            <select id="phone-checker-fallback-country" name="country">
+              <option value="IN" selected>IN — India</option>
+              <option value="US">US — United States</option>
+              <option value="GB">GB — United Kingdom</option>
+              <option value="CA">CA — Canada</option>
+              <option value="AU">AU — Australia</option>
+              <option value="AE">AE — UAE</option>
+              <option value="SG">SG — Singapore</option>
+              <option value="DE">DE — Germany</option>
+              <option value="FR">FR — France</option>
+            </select>
+            <label for="phone-checker-fallback-number">Phone number</label>
+            <input id="phone-checker-fallback-number" name="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+91 98765 43210" required>
+            <button class="phone-primary" type="submit">Check phone number</button>
+          </form>
+          <div id="phone-checker-fallback-result" class="phone-result" role="status" aria-live="polite" hidden></div>
+        </section>
+      </div>
       <div id="phone-checker-root"></div>
     </div>
   </section>
@@ -522,6 +545,7 @@
   <script src="assets/js/custom.js"></script>
   <script src="assets/js/deployment-config.js"></script>
   <script src="assets/js/backend.js"></script>
+  <script src="assets/js/phone-checker-fallback.js"></script>
   <script src="assets/phone-checker/phone-checker.iife.js"></script>
 
 </body>
