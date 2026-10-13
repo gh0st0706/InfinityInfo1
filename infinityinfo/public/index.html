@@ -74,7 +74,7 @@
             </a>
             <!-- ***** Logo End ***** -->
             <!-- ***** Menu Start ***** -->
-            <ul class="nav">
+            <ul class="nav" id="site-navigation">
               <li class="scroll-to-section"><a href="#top" class="active">Home</a></li>
               <li class="scroll-to-section"><a href="#about">About</a></li>
               <li class="scroll-to-section"><a href="#services">Services</a></li>
@@ -83,9 +83,9 @@
               <li class="scroll-to-section"><a href="#contact">Contact</a></li> 
               <li class="scroll-to-section"><div class="border-first-button"><a href="#contact">Free Quote</a></div></li> 
             </ul>        
-            <a class='menu-trigger'>
+            <button class="menu-trigger" type="button" aria-controls="site-navigation" aria-expanded="false" aria-label="Open navigation menu">
                 <span>Menu</span>
-            </a>
+            </button>
             <!-- ***** Menu End ***** -->
           </nav>
         </div>
@@ -170,31 +170,31 @@
               <div class="row">
                 <div class="col-lg-12">
                   <div class="menu">
-                    <div class="first-thumb active">
+                    <div class="first-thumb active" role="button" tabindex="0" aria-pressed="true" aria-label="Show technology lists">
                       <div class="thumb">
                         <span class="icon"><img src="assets/images/service-icon-01.png" alt=""></span>
                         TECHNOLOGY LISTS
                       </div>
                     </div>
-                    <div>
+                    <div role="button" tabindex="0" aria-pressed="false" aria-label="Show contact appending">
                       <div class="thumb">                 
                         <span class="icon"><img src="assets/images/service-icon-02.png" alt=""></span>
                         CONTACT APPENDING
                       </div>
                     </div>
-                    <div>
+                    <div role="button" tabindex="0" aria-pressed="false" aria-label="Show email appending">
                       <div class="thumb">                 
                         <span class="icon"><img src="assets/images/service-icon-03.png" alt=""></span>
                         EMAIL APPENDING
                       </div>
                     </div>
-                    <div>
+                    <div role="button" tabindex="0" aria-pressed="false" aria-label="Show data appending">
                       <div class="thumb">                 
                         <span class="icon"><img src="assets/images/service-icon-04.png" alt=""></span>
                         DATA APPENDING
                       </div>
                     </div>
-                    <div class="last-thumb">
+                    <div class="last-thumb" role="button" tabindex="0" aria-pressed="false" aria-label="Show phone appending">
                       <div class="thumb">                 
                         <span class="icon"><img src="assets/images/service-icon-01.png" alt=""></span>
                         PHONE APPENDING
@@ -408,11 +408,12 @@
           </section>
           <section class="phone-panel">
             <h4><span class="purple">02</span> Upload a phone list</h4>
-            <label class="phone-drop" for="phone-checker-csv">
-              <strong>Choose a CSV file</strong><span>Click to browse · up to 8 MB</span><small>CSV · Phone/Mobile column · optional Country column</small>
+            <label id="phone-checker-drop-zone" class="phone-drop" for="phone-checker-csv" role="button" tabindex="0" aria-label="Choose or drop a CSV file">
+              <strong id="phone-checker-drop-title">Drop a CSV file here</strong>
+              <span id="phone-checker-drop-subtitle">or click to browse · up to 8 MB</span>
+              <small id="phone-checker-drop-hint">Phone/Mobile column · optional Country column</small>
             </label>
             <input id="phone-checker-csv" class="phone-file-input" type="file" accept=".csv,text/csv">
-            <p id="phone-checker-file-name" class="phone-help">No file selected</p>
             <button id="phone-checker-csv-submit" class="phone-primary" type="button" disabled>Check phone list</button>
             <p id="phone-checker-bulk-status" class="phone-progress" role="status" aria-live="polite"></p>
           </section>
@@ -445,12 +446,12 @@
             <div class="row">
               <div class="col-lg-4 col-sm-4">
                 <fieldset>
-                  <input type="web" name="web" class="website" placeholder="Your website URL..." autocomplete="on" required>
+                  <input type="url" name="web" class="website" placeholder="Your website URL..." autocomplete="url" required>
                 </fieldset>
               </div>
               <div class="col-lg-4 col-sm-4">
                 <fieldset>
-                  <input type="address" name="address" class="email" placeholder="Email Address..." autocomplete="on" required>
+                  <input type="email" name="address" class="email" placeholder="Email Address..." autocomplete="email" required>
                 </fieldset>
               </div>
               <div class="col-lg-4 col-sm-4">
@@ -476,7 +477,7 @@
           </div>
         </div>
         <div class="col-lg-12 wow fadeInUp" data-wow-duration="0.5s" data-wow-delay="0.25s">
-          <form id="contact" action="" method="post">
+          <form id="contact-form" action="" method="post">
             <div class="row">
               <div class="col-lg-12">
                 <div class="contact-dec">
@@ -517,13 +518,13 @@
                     </div>
                     <div class="col-lg-6">
                       <fieldset>
-                        <input type="name" name="name" id="name" placeholder="Name" autocomplete="on" required>
+                        <input type="text" name="name" id="name" placeholder="Name" autocomplete="name" required>
                       </fieldset>
                       <fieldset>
-                        <input type="text" name="email" id="email" pattern="[^ @]*@[^ @]*" placeholder="Your Email" required="">
+                        <input type="email" name="email" id="email" autocomplete="email" placeholder="Your Email" required>
                       </fieldset>
                       <fieldset>
-                        <input type="subject" name="subject" id="subject" placeholder="Subject" autocomplete="on">
+                        <input type="text" name="subject" id="subject" placeholder="Subject" autocomplete="off">
                       </fieldset>
                     </div>
                     <div class="col-lg-6">

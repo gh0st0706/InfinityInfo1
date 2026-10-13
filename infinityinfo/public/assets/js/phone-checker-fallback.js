@@ -7,7 +7,10 @@
   var singleResult = document.getElementById("phone-checker-fallback-result");
   var singleSubmit = singleForm.querySelector("button[type='submit']");
   var fileInput = document.getElementById("phone-checker-csv");
-  var fileName = document.getElementById("phone-checker-file-name");
+  var dropZone = document.getElementById("phone-checker-drop-zone");
+  var dropTitle = document.getElementById("phone-checker-drop-title");
+  var dropSubtitle = document.getElementById("phone-checker-drop-subtitle");
+  var dropHint = document.getElementById("phone-checker-drop-hint");
   var bulkSubmit = document.getElementById("phone-checker-csv-submit");
   var bulkStatus = document.getElementById("phone-checker-bulk-status");
   var resultCount = document.getElementById("phone-checker-result-count");
@@ -17,6 +20,7 @@
   var errorNotice = document.getElementById("phone-fallback-error");
   var apiBase = window.INFINITYINFO_API_URL || "/api";
   var selectedFile = null;
+  var bulkBusy = false;
   var checkedRows = [];
 
   function hideFallbackWhenAppMounts() {
@@ -32,6 +36,19 @@
   function setError(message) {
     errorNotice.textContent = message || "";
     errorNotice.hidden = !message;
+  }
+
+  function showSelectedFile(file, status) {
+    selectedFile = file || null;
+    bulkSubmit.disabled = !selectedFile || bulkBusy;
+    dropZone.classList.toggle("has-file", Boolean(selectedFile));
+    dropTitle.textContent = selectedFile ? selectedFile.name : "Drop a CSV file here";
+    dropSubtitle.textContent = selectedFile
+      ? (status || (Math.max(1, Math.round(selectedFile.size / 1024)) + " KB · ready to check"))
+      : "or click to browse · up to 8 MB";
+    dropHint.textContent = selectedFile
+      ? "Click or drop another CSV to replace this file"
+      : "Phone/Mobile column · optional Country column";
   }
 
   async function post(path, body) {
@@ -213,18 +230,52 @@
   });
 
   fileInput.addEventListener("change", function () {
-    selectedFile = fileInput.files && fileInput.files[0];
-    fileName.textContent = selectedFile ? "Selected: " + selectedFile.name : "No file selected";
-    bulkSubmit.disabled = !selectedFile;
+    var file = fileInput.files && fileInput.files[0];
+    showSelectedFile(file);
+    fileInput.value = "";
     bulkStatus.textContent = "";
     setError("");
+  });
+
+  ["dragenter", "dragover"].forEach(function (eventName) {
+    dropZone.addEventListener(eventName, function (event) {
+      event.preventDefault();
+      dropZone.classList.add("is-dragging");
+    });
+  });
+  ["dragleave", "dragend"].forEach(function (eventName) {
+    dropZone.addEventListener(eventName, function (event) {
+      event.preventDefault();
+      dropZone.classList.remove("is-dragging");
+    });
+  });
+  dropZone.addEventListener("drop", function (event) {
+    event.preventDefault();
+    dropZone.classList.remove("is-dragging");
+    var file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
+    if (!file) return;
+    if (!/\.csv$/i.test(file.name) && file.type !== "text/csv") {
+      setError("Choose a CSV file to upload.");
+      return;
+    }
+    setError("");
+    bulkStatus.textContent = "";
+    showSelectedFile(file);
+  });
+  dropZone.addEventListener("keydown", function (event) {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      fileInput.click();
+    }
   });
 
   bulkSubmit.addEventListener("click", async function () {
     if (!selectedFile) return;
     setError("");
+    bulkBusy = true;
     bulkSubmit.disabled = true;
     bulkSubmit.textContent = "Checking…";
+    showSelectedFile(selectedFile, "Uploading and checking your phone list…");
     bulkStatus.textContent = "Reading CSV…";
     try {
       if (selectedFile.size > 8 * 1024 * 1024) throw new Error("Choose a CSV file that is 8 MB or smaller.");
@@ -244,11 +295,13 @@
       }
       checkedRows = checked;
       renderResults();
+      showSelectedFile(selectedFile, checked.length + " numbers checked · ready to download");
       bulkStatus.textContent = "Finished checking " + checked.length + " numbers.";
     } catch (error) {
       bulkStatus.textContent = "";
       setError(error.message);
     } finally {
+      bulkBusy = false;
       bulkSubmit.disabled = !selectedFile;
       bulkSubmit.textContent = "Check phone list";
     }

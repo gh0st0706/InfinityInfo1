@@ -43,6 +43,9 @@
 .ph-badge.unknown { background: #eef1f6; color: #66718a; }
 .phone-drop { display: flex; min-height: 145px; width: 100%; padding: 20px; align-items: center; justify-content: center; flex-direction: column; border: 1.5px dashed #ccd5e7; border-radius: 11px; background: #fafbff; text-align: center; cursor: pointer; }
 .phone-drop:hover { border-color: #4da6e7; background: #f3f9fd; }
+.phone-drop.is-dragging { border-color: #2687c6; border-style: solid; background: #eaf5fc; box-shadow: 0 0 0 3px rgba(77, 166, 231, .14); }
+.phone-drop.has-file strong { max-width: 100%; overflow-wrap: anywhere; }
+.phone-drop.has-file { border-style: solid; border-color: #d5e8f6; background: #f7fbfe; }
 .phone-drop:disabled { cursor: wait; opacity: .6; }
 .phone-drop strong { color: #333; font-size: 14px; }
 .phone-drop span { margin-top: 8px; color: #8791a7; font-size: 12px; }

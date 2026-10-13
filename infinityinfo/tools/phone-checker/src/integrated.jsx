@@ -54,6 +54,8 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [progress, setProgress] = useState("");
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [fileStatus, setFileStatus] = useState("");
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const fileInput = useRef(null);
@@ -111,25 +113,38 @@ function App() {
     setProgress(`Finished checking ${results.length} numbers.`);
   }
 
-  async function readFile(event) {
-    const file = event.target.files?.[0];
+  async function processFile(file) {
     if (!file) return;
-    setBusy(true); setError(""); setProgress("Reading file…");
+    setSelectedFile(file);
+    setBusy(true); setError(""); setProgress("Reading file…"); setFileStatus("Reading file…");
     try {
       if (file.size > 8 * 1024 * 1024) throw new Error("Choose a file that is 8 MB or smaller.");
       const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
       const records = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { defval: "" });
       if (!records.length) throw new Error("The first worksheet is empty.");
       const columns = Object.keys(records[0]);
-      const phoneColumn = columns.find(key => /phone|mobile|telephone|number|whatsapp|contact/i.test(key)) || columns[0];
+      const phoneColumn = columns.find(key => /phone|mobile|telephone|number|whatsapp/i.test(key)) ||
+        columns.find(key => /contact/i.test(key)) || columns[0];
       const countryColumn = columns.find(key => /^country$|country code|region/i.test(key));
       const numbers = records.map(record => ({
         phone: String(record[phoneColumn] ?? "").trim(),
         country: countryColumn ? String(record[countryColumn] || country).trim().toUpperCase() : country
       })).filter(item => item.phone);
+      if (!numbers.length) throw new Error("No phone numbers found in the first worksheet.");
+      setFileStatus(numbers.length + " phone numbers · checking now");
       await checkMany(numbers);
-    } catch (readError) { setError(readError.message); setProgress(""); }
-    finally { setBusy(false); event.target.value = ""; }
+      setFileStatus(numbers.length + " phone numbers checked · ready to download");
+    } catch (readError) {
+      setError(readError.message);
+      setProgress("");
+      setFileStatus("Could not check this file · choose another file");
+    } finally { setBusy(false); }
+  }
+
+  function readFile(event) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    processFile(file);
   }
 
   function pasteNumbers() {
@@ -173,15 +188,21 @@ function App() {
 
       <section className="phone-panel">
         <h4><span className="purple">02</span> Bulk check</h4>
-        <button type="button" className="phone-drop" disabled={busy} onClick={() => fileInput.current?.click()} onDragOver={event => event.preventDefault()} onDrop={event => {
+        <button type="button" className={`phone-drop ${selectedFile ? "has-file" : ""}`} disabled={busy} onClick={() => fileInput.current?.click()} onDragOver={event => {
           event.preventDefault();
+          event.currentTarget.classList.add("is-dragging");
+        }} onDragLeave={event => event.currentTarget.classList.remove("is-dragging")} onDrop={event => {
+          event.preventDefault();
+          event.currentTarget.classList.remove("is-dragging");
           const file = event.dataTransfer.files?.[0];
-          if (file && fileInput.current) {
-            const transfer = new DataTransfer(); transfer.items.add(file); fileInput.current.files = transfer.files;
-            readFile({ target: fileInput.current });
+          if (file) {
+            setError("");
+            processFile(file);
           }
         }}>
-          <strong>Drop an Excel or CSV file here</strong><span>or click to browse · up to 8 MB</span><small>CSV · XLSX · XLS</small>
+          <strong>{selectedFile ? selectedFile.name : "Drop an Excel or CSV file here"}</strong>
+          <span>{selectedFile ? fileStatus || "File selected · ready to check" : "or click to browse · up to 8 MB"}</span>
+          <small>{selectedFile ? "Drop or choose another file to replace it" : "CSV · XLSX · XLS"}</small>
         </button>
         <input ref={fileInput} className="phone-file-input" type="file" accept=".csv,.xlsx,.xls" onChange={readFile} />
         <div className="phone-actions">
