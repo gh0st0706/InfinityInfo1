@@ -6,6 +6,7 @@ dependencies = [
     "fastapi",
     "httpx",
     "dnspython",
+    "phonenumbers",
     "openpyxl",
     "python-dotenv",
     "python-multipart",

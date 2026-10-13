@@ -1,5 +1,6 @@
 
 import asyncio
+import base64
 import csv
 import html.parser
 import ipaddress
@@ -9,8 +10,10 @@ import re
 import socket
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
+from typing import Any
 
 import dns.asyncresolver
+import phonenumbers
 
 import httpx
 from dotenv import dotenv_values, load_dotenv
@@ -81,6 +84,11 @@ app.add_middleware(
 
 HUNTER_API_KEY = load_hunter_api_key()
 HUNTER_URL = "https://api.hunter.io/v2/email-finder"
+TWILIO_LOOKUP_URL = "https://lookups.twilio.com/v2/PhoneNumbers/"
+TWILIO_API_KEY = os.getenv("TWILIO_API_KEY", "").strip()
+TWILIO_API_SECRET = os.getenv("TWILIO_API_SECRET", "").strip()
+DEFAULT_PHONE_COUNTRY = os.getenv("DEFAULT_COUNTRY", "IN").strip().upper()
+MAX_PHONE_BULK_ROWS = max(1, int(os.getenv("MAX_BULK_ROWS", "500")))
 MAX_UPLOAD_BYTES = 4 * 1024 * 1024
 
 REQUIRED_COLUMNS = {
@@ -102,6 +110,18 @@ class EmailSearch(BaseModel):
 class PersonFinderSearch(BaseModel):
     full_name: str
     company: str
+
+
+class PhoneValidationRequest(BaseModel):
+    phone: str
+    country: str | None = None
+    useProvider: bool = False
+
+
+class PhoneBulkValidationRequest(BaseModel):
+    numbers: list[Any]
+    country: str | None = None
+    useProvider: bool = False
 
 
 class PublicPageParser(html.parser.HTMLParser):
@@ -256,6 +276,110 @@ async def lookup_person_publicly(first_name, last_name, domain):
     return {"found": False, "email": candidate, "confidence": confidence, "validation": "domain_has_mx", "result": result, "candidates": candidates}
 
 
+def validate_phone_locally(value, country=None):
+    raw = clean(value)
+    region = clean(country).upper() or DEFAULT_PHONE_COUNTRY
+    if region not in phonenumbers.SUPPORTED_REGIONS:
+        region = DEFAULT_PHONE_COUNTRY if DEFAULT_PHONE_COUNTRY in phonenumbers.SUPPORTED_REGIONS else "IN"
+    result = {
+        "input": raw,
+        "normalized": "",
+        "nationalFormat": "",
+        "country": "",
+        "callingCode": "",
+        "validFormat": False,
+        "possible": False,
+        "lineType": "unknown",
+        "carrier": "",
+        "lookupStatus": "local_only",
+        "reachability": "not_checked",
+        "whatsapp": "not_checked",
+        "providerConfigured": bool(TWILIO_API_KEY and TWILIO_API_SECRET),
+    }
+    if not raw:
+        result["message"] = "Empty phone number"
+        return result
+    try:
+        parsed = phonenumbers.parse(raw, region)
+    except phonenumbers.NumberParseException:
+        result["message"] = "Could not parse number; include a country code such as +91"
+        return result
+
+    valid = phonenumbers.is_valid_number(parsed)
+    possible = phonenumbers.is_possible_number(parsed)
+    type_labels = {
+        phonenumbers.PhoneNumberType.FIXED_LINE: "fixed_line",
+        phonenumbers.PhoneNumberType.MOBILE: "mobile",
+        phonenumbers.PhoneNumberType.FIXED_LINE_OR_MOBILE: "fixed_line_or_mobile",
+        phonenumbers.PhoneNumberType.TOLL_FREE: "toll_free",
+        phonenumbers.PhoneNumberType.PREMIUM_RATE: "premium_rate",
+        phonenumbers.PhoneNumberType.SHARED_COST: "shared_cost",
+        phonenumbers.PhoneNumberType.VOIP: "voip",
+        phonenumbers.PhoneNumberType.PERSONAL_NUMBER: "personal_number",
+        phonenumbers.PhoneNumberType.PAGER: "pager",
+        phonenumbers.PhoneNumberType.UAN: "uan",
+        phonenumbers.PhoneNumberType.VOICEMAIL: "voicemail",
+    }
+    result.update({
+        "normalized": phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164),
+        "nationalFormat": phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.NATIONAL),
+        "country": phonenumbers.region_code_for_number(parsed) or "",
+        "callingCode": str(parsed.country_code or ""),
+        "validFormat": valid,
+        "possible": possible,
+        "lineType": type_labels.get(phonenumbers.number_type(parsed), "unknown"),
+        "message": "Matches numbering-plan metadata; active service is not confirmed" if valid else "Does not match current numbering-plan metadata",
+    })
+    return result
+
+
+async def enrich_phone_with_provider(result):
+    if not result.get("normalized") or not result.get("validFormat"):
+        return result
+    credentials = (TWILIO_API_KEY, TWILIO_API_SECRET)
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.get(
+                f"{TWILIO_LOOKUP_URL}{result['normalized']}",
+                params={"Fields": "line_type_intelligence"},
+                auth=credentials,
+                headers={"Accept": "application/json"},
+            )
+        if response.status_code >= 400:
+            raise httpx.HTTPStatusError("Lookup provider returned an error", request=response.request, response=response)
+        data = response.json()
+        line_info = data.get("line_type_intelligence") or {}
+        result.update({
+            "providerValid": data.get("valid"),
+            "normalized": data.get("phone_number") or result["normalized"],
+            "nationalFormat": data.get("national_format") or result["nationalFormat"],
+            "country": data.get("country_code") or result["country"],
+            "callingCode": data.get("calling_country_code") or result["callingCode"],
+            "carrier": line_info.get("carrier_name") or "",
+            "lineType": line_info.get("type") or result["lineType"],
+            "lookupStatus": "provider_checked",
+            "reachability": "not_confirmed",
+            "providerErrorCode": line_info.get("error_code"),
+            "message": "Provider lookup completed. Numbering-plan validity does not guarantee an active or reachable line.",
+        })
+        if data.get("valid") is not None:
+            result["validFormat"] = data["valid"]
+        return result
+    except (httpx.HTTPError, ValueError):
+        result.update({
+            "lookupStatus": "provider_error",
+            "message": result["message"] + "; carrier lookup did not complete.",
+        })
+        return result
+
+
+async def check_phone(value, country=None, use_provider=False):
+    result = validate_phone_locally(value, country)
+    if use_provider and TWILIO_API_KEY and TWILIO_API_SECRET:
+        return await enrich_phone_with_provider(result)
+    return result
+
+
 def clean(value):
     return str(value).strip() if value is not None else ""
 
@@ -325,9 +449,13 @@ async def find_with_hunter(client, first_name, last_name, domain):
 @app.get("/api/health")
 def home():
     return {
+        "ok": True,
         "message": "InfinityInfo API is running",
         "hunter_api_configured": bool(HUNTER_API_KEY),
         "public_lookup_available": True,
+        "providerConfigured": bool(TWILIO_API_KEY and TWILIO_API_SECRET),
+        "defaultCountry": DEFAULT_PHONE_COUNTRY,
+        "maxBulkRows": MAX_PHONE_BULK_ROWS,
     }
 
 
@@ -376,6 +504,44 @@ async def email_finder(search: PersonFinderSearch):
     domain = normalize_company_domain(search.company)
     result = await lookup_person_publicly(name_parts[0], name_parts[-1], domain)
     return {"name": clean(search.full_name), "domain": domain, **result}
+
+
+@app.post("/validate")
+@app.post("/api/validate")
+async def validate_phone_endpoint(request: PhoneValidationRequest):
+    if not clean(request.phone):
+        raise HTTPException(status_code=400, detail="Enter a phone number")
+    return await check_phone(request.phone, request.country, request.useProvider)
+
+
+@app.post("/validate/bulk")
+@app.post("/api/validate/bulk")
+async def validate_phone_bulk_endpoint(request: PhoneBulkValidationRequest):
+    if len(request.numbers) > MAX_PHONE_BULK_ROWS:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Maximum {MAX_PHONE_BULK_ROWS} rows per batch",
+        )
+
+    use_provider = request.useProvider and bool(TWILIO_API_KEY and TWILIO_API_SECRET)
+    semaphore = asyncio.Semaphore(3 if use_provider else 15)
+
+    async def check_one(item):
+        if isinstance(item, dict):
+            phone = item.get("phone") or item.get("mobile") or item.get("number") or ""
+            country = item.get("country") or request.country
+        else:
+            phone = item if isinstance(item, str) else ""
+            country = request.country
+        async with semaphore:
+            return await check_phone(phone, country, use_provider)
+
+    results = await asyncio.gather(*(check_one(item) for item in request.numbers))
+    return {
+        "results": results,
+        "count": len(results),
+        "providerConfigured": bool(TWILIO_API_KEY and TWILIO_API_SECRET),
+    }
 
 
 async def enrich_rows(headers, rows):

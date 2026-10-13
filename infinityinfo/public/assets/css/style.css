@@ -926,6 +926,19 @@ header
   color: #555;
 }
 
+.phone-checker-section {
+  padding: 100px 0;
+  background: #f7f7f7;
+}
+
+.phone-checker-section .section-heading {
+  margin-bottom: 42px;
+}
+
+.phone-checker-section .section-heading p {
+  margin-top: 20px;
+}
+
 @media (max-width: 767px) {
   .email-lookup-card {
     padding: 24px;
