@@ -58,6 +58,7 @@
 .phone-results-heading h4 { margin-bottom: 5px; }
 .phone-results-heading p { margin: 0; color: #888; font-size: 12px; }
 .phone-results-heading .phone-actions { margin-top: 0; }
+.phone-download { width: auto; margin: 0; white-space: nowrap; }
 .phone-table-tools { display: flex; justify-content: space-between; gap: 12px; padding: 12px 20px; border-top: 1px solid #eef1f6; border-bottom: 1px solid #eef1f6; }
 .phone-filters { display: flex; gap: 5px; }
 .phone-filters button { padding: 8px 10px; border: 0; border-radius: 7px; background: transparent; color: #7c879c; font: inherit; font-size: 11px; cursor: pointer; }
@@ -82,5 +83,6 @@
   .phone-table-tools { flex-direction: column; }
   .phone-panel input.phone-search { width: 100%; }
   .phone-results-heading .phone-actions { width: 100%; }
+  .phone-download { width: 100%; }
   .phone-table-footer { flex-direction: column; }
 }

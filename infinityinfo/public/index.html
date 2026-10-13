@@ -383,26 +383,47 @@
         <p>Check individual numbers or clean a spreadsheet of business contacts.</p>
       </div>
       <div id="phone-checker-fallback" class="phone-tool phone-fallback">
-        <section class="phone-panel">
-          <h4><span>01</span> Check one number</h4>
-          <form id="phone-checker-fallback-form">
-            <label for="phone-checker-fallback-country">Default country</label>
-            <select id="phone-checker-fallback-country" name="country">
-              <option value="IN" selected>IN — India</option>
-              <option value="US">US — United States</option>
-              <option value="GB">GB — United Kingdom</option>
-              <option value="CA">CA — Canada</option>
-              <option value="AU">AU — Australia</option>
-              <option value="AE">AE — UAE</option>
-              <option value="SG">SG — Singapore</option>
-              <option value="DE">DE — Germany</option>
-              <option value="FR">FR — France</option>
-            </select>
-            <label for="phone-checker-fallback-number">Phone number</label>
-            <input id="phone-checker-fallback-number" name="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+91 98765 43210" required>
-            <button class="phone-primary" type="submit">Check phone number</button>
-          </form>
-          <div id="phone-checker-fallback-result" class="phone-result" role="status" aria-live="polite" hidden></div>
+        <div class="phone-tool-heading">
+          <div><span class="phone-eyebrow">PHONE NUMBER VALIDATION</span><h3>Check and clean phone records</h3></div>
+          <span id="phone-fallback-status" class="phone-api-status" role="status">Connecting…</span>
+        </div>
+        <p id="phone-fallback-error" class="phone-error" role="alert" hidden></p>
+        <div class="phone-tool-grid">
+          <section class="phone-panel">
+            <h4><span>01</span> Check one number</h4>
+            <form id="phone-checker-fallback-form">
+              <label for="phone-checker-fallback-country">Default country</label>
+              <select id="phone-checker-fallback-country" name="country">
+                <option value="IN" selected>IN — India</option><option value="US">US — United States</option>
+                <option value="GB">GB — United Kingdom</option><option value="CA">CA — Canada</option>
+                <option value="AU">AU — Australia</option><option value="AE">AE — UAE</option>
+                <option value="SG">SG — Singapore</option><option value="DE">DE — Germany</option>
+                <option value="FR">FR — France</option>
+              </select>
+              <label for="phone-checker-fallback-number">Phone number</label>
+              <input id="phone-checker-fallback-number" name="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="+91 98765 43210" required>
+              <button class="phone-primary" type="submit">Check phone number</button>
+            </form>
+            <div id="phone-checker-fallback-result" class="phone-result" role="status" aria-live="polite" hidden></div>
+          </section>
+          <section class="phone-panel">
+            <h4><span class="purple">02</span> Upload a phone list</h4>
+            <label class="phone-drop" for="phone-checker-csv">
+              <strong>Choose a CSV file</strong><span>Click to browse · up to 8 MB</span><small>CSV · Phone/Mobile column · optional Country column</small>
+            </label>
+            <input id="phone-checker-csv" class="phone-file-input" type="file" accept=".csv,text/csv">
+            <p id="phone-checker-file-name" class="phone-help">No file selected</p>
+            <button id="phone-checker-csv-submit" class="phone-primary" type="button" disabled>Check phone list</button>
+            <p id="phone-checker-bulk-status" class="phone-progress" role="status" aria-live="polite"></p>
+          </section>
+        </div>
+        <section class="phone-panel phone-results-panel">
+          <div class="phone-results-heading">
+            <div><h4><span>03</span> Checked phone list</h4><p id="phone-checker-result-count">Upload a CSV to see checked numbers here.</p></div>
+            <button id="phone-checker-download" class="phone-primary phone-download" type="button" disabled>Download checked CSV</button>
+          </div>
+          <div class="phone-table-wrap"><table><thead><tr><th>Input</th><th>Normalized</th><th>Country</th><th>Format</th><th>Line type</th><th>Notes</th></tr></thead>
+            <tbody id="phone-checker-results"><tr><td colspan="6" class="phone-empty">No numbers checked yet.</td></tr></tbody></table></div>
         </section>
       </div>
       <div id="phone-checker-root"></div>
