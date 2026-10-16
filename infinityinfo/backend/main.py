@@ -505,40 +505,6 @@ def parse_lead_query(query):
     return category[:80], location[:100]
 
 
-def build_overpass_lead_query(category, location, limit, bounds):
-    rules = LEAD_TAG_RULES.get(category.casefold())
-    if not rules:
-        singular = re.sub(r"ies$", "y", category.casefold())
-        singular = re.sub(r"s$", "", singular)
-        values = (category.casefold(), singular)
-        rules = {
-            "name": values,
-            "amenity": values,
-            "shop": values,
-            "office": values,
-            "craft": values,
-            "tourism": values,
-            "leisure": values,
-            "healthcare": values,
-            "club": values,
-            "sport": values,
-            "industrial": values,
-            "commercial": values,
-        }
-    selectors = []
-    for key, values in rules.items():
-        value_regex = "^(?:" + "|".join(re.escape(value) for value in values) + ")$" if key != "name" else "|".join(re.escape(value) for value in values)
-        south, west, north, east = bounds
-        selector = f'nwr["{key}"~"{value_regex}",i]({south},{west},{north},{east});'
-        selectors.append(selector)
-    selector_block = "\n".join(selectors)
-    return (
-        f'[out:json][timeout:10];\n'
-        f'(\n{selector_block}\n);\n'
-        f'out center tags {limit};'
-    )
-
-
 def lead_text_value(tags, *keys):
     for key in keys:
         value = clean(tags.get(key, ""))
@@ -590,6 +556,49 @@ def build_lead_place(element, category, location):
         "website": website,
         "relevance": relevance,
         "coordinates": {"lat": latitude, "lon": longitude} if latitude is not None and longitude is not None else None,
+        "source": osm_url,
+        "contact_source": website or osm_url,
+    }
+
+
+def photon_feature_to_lead_place(feature, category, location):
+    properties = feature.get("properties") or {}
+    coordinates = (feature.get("geometry") or {}).get("coordinates") or []
+    tags = dict(properties.get("extra") or {})
+    tags["name"] = properties.get("name", "")
+    osm_key, osm_value = properties.get("osm_key"), properties.get("osm_value")
+    if osm_key and osm_value:
+        tags[osm_key] = osm_value
+    for key in ("phone", "contact:phone", "email", "contact:email", "website", "contact:website", "url"):
+        if properties.get(key):
+            tags[key] = properties[key]
+
+    name = lead_text_value(tags, "name")
+    if not name:
+        return None
+    address = [
+        lead_text_value(properties, "housenumber"),
+        lead_text_value(properties, "street"),
+        lead_text_value(properties, "locality", "district"),
+        lead_text_value(properties, "city", "county", "state") or location,
+        lead_text_value(properties, "postcode"),
+    ]
+    osm_type = {"N": "node", "W": "way", "R": "relation"}.get(properties.get("osm_type"), "node")
+    osm_id = properties.get("osm_id")
+    osm_url = f"https://www.openstreetmap.org/{osm_type}/{osm_id}" if osm_id else "https://www.openstreetmap.org/"
+    email = lead_text_value(tags, "contact:email", "email")
+    phone = lead_text_value(tags, "contact:phone", "phone", "contact:mobile", "mobile")
+    website = lead_text_value(tags, "contact:website", "website", "url")
+    if website and not urlparse(website).scheme:
+        website = "https://" + website
+    return {
+        "name": name,
+        "location": ", ".join(part for part in address if part),
+        "email": email,
+        "phone": phone,
+        "website": website,
+        "relevance": "Category match" if osm_key else "Name match",
+        "coordinates": {"lat": coordinates[1], "lon": coordinates[0]} if len(coordinates) >= 2 else None,
         "source": osm_url,
         "contact_source": website or osm_url,
     }
@@ -669,13 +678,13 @@ async def find_local_leads(query, limit=20):
     location_key = location.casefold()
     cached_location = LEAD_LOCATION_CACHE.get(location_key)
     try:
-        async with httpx.AsyncClient(timeout=12, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=8, follow_redirects=True) as client:
             headers = {
                 "User-Agent": "InfinityInfoLeadFinder/1.0 (+https://infinityinfo1-infinityinfo.vercel.app)",
                 "Accept": "application/json",
             }
             if cached_location and time.time() - cached_location[0] < LEAD_LOCATION_CACHE_TTL_SECONDS:
-                bounds = cached_location[1]
+                latitude, longitude = cached_location[1]
             else:
                 geocode_response = await client.get(
                     "https://photon.komoot.io/api/",
@@ -690,35 +699,49 @@ async def find_local_leads(query, limit=20):
                 if len(coordinates) < 2:
                     raise ValueError("Geocoder returned no coordinates")
                 longitude, latitude = map(float, coordinates[:2])
-                # Keep public Overpass requests small and bounded for reliable response times.
-                latitude_delta = 0.08
-                longitude_delta = 0.08 / max(0.2, abs(math.cos(math.radians(latitude))))
-                bounds = (
-                    round(latitude - latitude_delta, 5),
-                    round(longitude - longitude_delta, 5),
-                    round(latitude + latitude_delta, 5),
-                    round(longitude + longitude_delta, 5),
+                LEAD_LOCATION_CACHE[location_key] = (time.time(), (latitude, longitude))
+
+            rules = LEAD_TAG_RULES.get(category.casefold())
+            if not rules:
+                singular = re.sub(r"ies$", "y", category.casefold())
+                singular = re.sub(r"s$", "", singular)
+                rules = {"name": (category.casefold(), singular)}
+
+            photon_requests = []
+            for key, values in rules.items():
+                if key == "name":
+                    continue
+                photon_requests.extend((key, value) for value in values)
+            photon_requests = photon_requests[:5]
+
+            async def fetch_photon_category(key, value):
+                response = await client.get(
+                    "https://photon.komoot.io/reverse",
+                    params={"lon": longitude, "lat": latitude, "radius": 35, "osm_tag": f"{key}:{value}", "limit": limit},
+                    headers=headers,
                 )
-                LEAD_LOCATION_CACHE[location_key] = (time.time(), bounds)
-            overpass_query = build_overpass_lead_query(category, location, limit, bounds)
-            endpoints = [
-                os.getenv("OVERPASS_ENDPOINT", "https://maps.mail.ru/osm/tools/overpass/api/interpreter"),
-                "https://overpass-api.de/api/interpreter",
-            ]
-            data = None
-            last_error = None
-            for endpoint in endpoints:
-                try:
-                    response = await client.post(endpoint, data={"data": overpass_query}, headers=headers)
-                    response.raise_for_status()
-                    data = response.json()
-                    break
-                except (httpx.HTTPError, ValueError) as exc:
-                    last_error = exc
-            if data is None:
-                raise last_error or httpx.HTTPError("No public place data endpoint responded")
-            elements = data.get("elements", [])
-            places = [place for place in (build_lead_place(item, category, location) for item in elements) if place]
+                response.raise_for_status()
+                return response.json().get("features", [])
+
+            responses = await asyncio.gather(*(fetch_photon_category(key, value) for key, value in photon_requests)) if photon_requests else []
+            features = [feature for group in responses for feature in group]
+            if not features:
+                # Keep general searches useful for categories without a standard OSM tag.
+                latitude_delta = 0.4
+                longitude_delta = min(1.0, latitude_delta / max(0.2, abs(math.cos(math.radians(latitude)))))
+                response = await client.get(
+                    "https://photon.komoot.io/api/",
+                    params={
+                        "q": category,
+                        "bbox": f"{longitude-longitude_delta},{latitude-latitude_delta},{longitude+longitude_delta},{latitude+latitude_delta}",
+                        "limit": limit,
+                        "lang": "en",
+                    },
+                    headers=headers,
+                )
+                response.raise_for_status()
+                features = response.json().get("features", [])
+            places = [place for place in (photon_feature_to_lead_place(item, category, location) for item in features) if place]
             unique_places = []
             seen = set()
             for place in places:
@@ -726,6 +749,7 @@ async def find_local_leads(query, limit=20):
                 if key not in seen:
                     seen.add(key)
                     unique_places.append(place)
+            unique_places = unique_places[:limit]
             async with httpx.AsyncClient(timeout=3, follow_redirects=False) as site_client:
                 semaphore = asyncio.Semaphore(5)
                 async def enrich_limited(place):
