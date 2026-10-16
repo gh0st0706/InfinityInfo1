@@ -178,7 +178,7 @@ async def assert_public_host(host):
         raise HTTPException(status_code=400, detail="The company domain does not resolve to a public address")
 
 
-async def inspect_public_company_site(client, domain, search_context=""):
+async def inspect_public_company_site(client, domain):
     await assert_public_host(domain)
     allowed_hosts = {domain}
     urls = [f"https://{domain}/"]
@@ -190,34 +190,18 @@ async def inspect_public_company_site(client, domain, search_context=""):
         allowed_hosts.add(f"www.{domain}")
         urls.append(f"https://www.{domain}/")
 
-    # A lot of organizations publish contacts on dedicated pages. Search
-    # relevant sitemap entries and common contact pages before broad crawling.
-    common_urls = [
+    # A lot of company sites keep their contact information off the homepage.
+    # Seed the common public pages so the finder does not depend on navigation
+    # order or a site's home page being rendered as static HTML.
+    urls.extend(
         f"https://{domain}/{path}"
-        for path in (
-            "contact", "contact-us", "about", "about-us", "team", "leadership",
-            "people", "staff", "press", "media", "newsroom", "get-involved",
-        )
-    ]
+        for path in ("contact", "contact-us", "about", "about-us", "team", "leadership")
+    )
     visited = set()
     checked_pages = set()
     found = {}
     pages_checked = 0
     deadline = asyncio.get_running_loop().time() + 5
-    query_tokens = set(re.findall(r"[a-z0-9]+", search_context.casefold()))
-    relevant_paths = []
-    relevant_terms = set(query_tokens)
-    for group, terms in TEAM_CONTACT_TERMS.items():
-        if query_tokens & terms:
-            relevant_paths.extend(TEAM_ROUTE_HINTS.get(group, ()))
-            relevant_terms.update(terms)
-    relevant_paths.extend(token for token in query_tokens if len(token) >= 4)
-    query_urls = [f"https://{domain}/{path}" for path in dict.fromkeys(relevant_paths)]
-    sitemap_path_pattern = re.compile(
-        r"contact|about|team|leadership|people|staff|press|media|"
-        + "|".join(re.escape(term) for term in sorted(relevant_terms, key=len, reverse=True) if len(term) >= 4),
-        re.I,
-    )
 
     async def read_public_page(url, require_html=True):
         for _ in range(6):
@@ -318,27 +302,14 @@ async def inspect_public_company_site(client, domain, search_context=""):
                 and parsed_candidate.port in {None, 80, 443}
                 and not parsed_candidate.username
                 and not parsed_candidate.password
-                and sitemap_path_pattern.search(parsed_candidate.path)
+                and re.search(r"contact|about|team|leadership|people|staff|press|media", parsed_candidate.path, re.I)
             ):
                 discovered_urls.append(candidate_url.split("#", 1)[0])
-                if len(discovered_urls) >= 80:
+                if len(discovered_urls) >= 12:
                     break
         if discovered_urls:
             break
-    discovered_urls = list(dict.fromkeys(discovered_urls))
-    if relevant_terms:
-        discovered_urls.sort(
-            key=lambda candidate: (
-                not any(
-                    re.search(r"\b" + re.escape(term) + r"\b", urlparse(candidate).path, re.I)
-                    for term in relevant_terms if len(term) >= 4
-                ),
-                candidate,
-            )
-        )
-    # Check role-specific routes and matching sitemap pages before broad
-    # sitemap results, which can otherwise consume the small crawl budget.
-    urls = urls[:2] + query_urls + discovered_urls + common_urls
+    urls.extend(discovered_urls)
 
     while urls and pages_checked < 12:
         url = urls.pop(0)
@@ -399,7 +370,7 @@ def no_mail_server_result():
     }
 
 
-async def lookup_public_company(domain, search_context=""):
+async def lookup_public_company(domain):
     resolver = dns.asyncresolver.Resolver()
     try:
         mx_records = await resolver.resolve(domain, "MX", lifetime=4)
@@ -423,7 +394,7 @@ async def lookup_public_company(domain, search_context=""):
         raise HTTPException(status_code=503, detail="Could not check company mail records. Please try again.") from exc
 
     async with httpx.AsyncClient(timeout=8, follow_redirects=False) as client:
-        public_site = await inspect_public_company_site(client, domain, search_context)
+        public_site = await inspect_public_company_site(client, domain)
     return {"has_mail_server": True, **public_site}
 
 
@@ -515,23 +486,11 @@ TEAM_CONTACT_TERMS = {
     "finance": {"finance", "financial", "accounting", "accounts", "accountant"},
     "safeguarding": {"safeguarding", "protection", "child", "safety", "welfare"},
 }
-TEAM_ROUTE_HINTS = {
-    "fundraising": ("fundraising", "donate", "donations", "giving", "support-us"),
-    "partnerships": ("partnerships", "corporate-partnerships", "partners"),
-    "volunteering": ("volunteer", "volunteering", "get-involved"),
-    "press": ("press", "media", "newsroom"),
-    "programs": ("programs", "programmes", "projects"),
-    "grants": ("grants", "funding"),
-    "advocacy": ("advocacy", "campaigns", "policy"),
-    "careers": ("careers", "jobs", "work-with-us"),
-    "finance": ("finance", "governance", "annual-reports"),
-    "safeguarding": ("safeguarding", "child-protection", "protection"),
-}
 GENERAL_CONTACT_TERMS = {"info", "contact", "hello", "office", "inquiries", "enquiries"}
 
 
 async def lookup_team_contact_publicly(team_query, domain):
-    public_site = await lookup_public_company(domain, team_query)
+    public_site = await lookup_public_company(domain)
     if not public_site["has_mail_server"]:
         return {"found": False, "email": "", "confidence": "", "validation": "", "result": "no_mail_server", "contact_type": "team", "sources": [], "pages_checked": []}
 
