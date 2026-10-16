@@ -2291,6 +2291,18 @@ textarea {
   max-width: 100%;
 }
 
+/* Keep form controls interactive above decorative section artwork and overlays. */
+input:not([type="file"]),
+select,
+textarea {
+  position: relative;
+  z-index: 2;
+  pointer-events: auto;
+  -webkit-user-select: text;
+  user-select: text;
+  touch-action: manipulation;
+}
+
 img {
   height: auto;
 }
