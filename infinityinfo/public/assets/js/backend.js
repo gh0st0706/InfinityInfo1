@@ -6,9 +6,11 @@
   const apiStatus = document.getElementById("api-status");
   const statusIndicator = document.querySelector(".api-status-indicator");
   const form = document.getElementById("email-lookup-form");
-  const finderForm = document.getElementById("person-finder-form");
-  const finderButton = document.getElementById("person-finder-submit");
-  const finderResult = document.getElementById("person-finder-result");
+  const finderForm = document.getElementById("lead-finder-form");
+  const finderButton = document.getElementById("lead-finder-submit");
+  const finderQuery = document.getElementById("lead-query");
+  const finderStatus = document.getElementById("lead-finder-status");
+  const finderResults = document.getElementById("lead-finder-results");
   const fileInput = document.getElementById("contact-file");
   const fileNameStatus = document.getElementById("contact-file-name");
   const uploadStatus = document.getElementById("upload-status");
@@ -37,10 +39,10 @@
       if (!response.ok) throw new Error("Backend returned an error");
       const health = await response.json();
       if (!health.public_lookup_available) {
-        setApiStatus(false, "Email finder is unavailable right now");
+        setApiStatus(false, "Lead finder is unavailable right now");
         return;
       }
-      setApiStatus(true, "Email finder ready");
+      setApiStatus(true, "Lead finder ready");
     } catch (error) {
       setApiStatus(false, "Backend not reachable · Start the API on port 8000");
     }
@@ -48,109 +50,129 @@
 
   checkBackend();
 
-  function showFinderResult(title, detail, email, state, sources = [], sourceHeadingText = "Public evidence sources:") {
-    finderResult.hidden = false;
-    finderResult.setAttribute("aria-busy", state === "loading" ? "true" : "false");
-    finderResult.className = `finder-result is-${state}`;
-    finderResult.replaceChildren();
+  function setFinderStatus(message, state) {
+    finderStatus.hidden = !message;
+    finderStatus.className = `finder-result is-${state || "empty"}`;
+    finderStatus.textContent = message;
+  }
 
-    const heading = document.createElement("strong");
-    heading.textContent = title;
-    finderResult.appendChild(heading);
+  function addText(parent, tag, className, text) {
+    const element = document.createElement(tag);
+    if (className) element.className = className;
+    element.textContent = text;
+    parent.appendChild(element);
+    return element;
+  }
 
-    if (email) {
-      const address = document.createElement("div");
-      address.className = "finder-email-address";
-      address.textContent = email;
-      finderResult.appendChild(address);
+  function safeWebUrl(value) {
+    try {
+      const url = new URL(value);
+      return url.protocol === "http:" || url.protocol === "https:" ? url : null;
+    } catch (error) {
+      return null;
     }
+  }
 
-    const note = document.createElement("p");
-    note.textContent = detail;
-    finderResult.appendChild(note);
+  function addExternalLink(parent, value, label, className) {
+    const url = safeWebUrl(value);
+    if (!url) return;
+    const link = addText(parent, "a", className || "", label);
+    link.href = url.href;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+  }
 
-    const safeSources = Array.isArray(sources) ? sources.filter(function (source) {
-      try {
-        const url = new URL(source);
-        return url.protocol === "https:" || url.protocol === "http:";
-      } catch (error) {
-        return false;
-      }
-    }).slice(0, 5) : [];
-    if (safeSources.length) {
-      const sourceHeading = document.createElement("p");
-      sourceHeading.className = "finder-sources-heading";
-      sourceHeading.textContent = sourceHeadingText;
-      finderResult.appendChild(sourceHeading);
-      const sourceList = document.createElement("ul");
-      sourceList.className = "finder-sources";
-      safeSources.forEach(function (source) {
-        const url = new URL(source);
-        const item = document.createElement("li");
-        const link = document.createElement("a");
-        link.href = url.href;
-        link.target = "_blank";
-        link.rel = "noopener noreferrer";
-        link.textContent = `${url.hostname}${url.pathname}`;
-        item.appendChild(link);
-        sourceList.appendChild(item);
+  function renderLeads(result) {
+    finderResults.replaceChildren();
+    const places = Array.isArray(result.results) ? result.results : [];
+    if (!places.length) {
+      setFinderStatus(`No matching places were listed in the public map data for ${result.location || "that area"}. Try a nearby city or a broader category.`, "empty");
+      return;
+    }
+    setFinderStatus(`${places.length} results for “${result.category}” in ${result.location}. Contact fields are shown only when publicly listed.`, "success");
+
+    places.forEach(function (place) {
+      const card = document.createElement("article");
+      card.className = "lead-card";
+      const header = document.createElement("div");
+      header.className = "lead-card-header";
+      addText(header, "h3", "lead-card-name", place.name || "Unnamed place");
+      addText(header, "span", "lead-relevance", place.relevance || "Related listing");
+      card.appendChild(header);
+      addText(card, "p", "lead-location", place.location || result.location);
+
+      const contactList = document.createElement("dl");
+      contactList.className = "lead-contact-list";
+      [
+        ["Email", place.email, place.email ? `mailto:${place.email}` : ""],
+        ["Phone", place.phone, place.phone ? `tel:${place.phone.replace(/[^+\d]/g, "")}` : ""]
+      ].forEach(function (item) {
+        const row = document.createElement("div");
+        const label = addText(row, "dt", "", item[0]);
+        const value = document.createElement("dd");
+        if (item[1] && item[2]) {
+          const link = addText(value, "a", "", item[1]);
+          link.href = item[2];
+        } else {
+          value.textContent = "Not listed publicly";
+          value.className = "lead-unlisted";
+        }
+        row.appendChild(label);
+        row.appendChild(value);
+        contactList.appendChild(row);
       });
-      finderResult.appendChild(sourceList);
-    }
+      card.appendChild(contactList);
+
+      const links = document.createElement("div");
+      links.className = "lead-card-links";
+      addExternalLink(links, place.website, "Website", "lead-source-link");
+      addExternalLink(links, place.contact_source, "Contact source", "lead-source-link");
+      addExternalLink(links, place.source, "Map record", "lead-source-link");
+      card.appendChild(links);
+      finderResults.appendChild(card);
+    });
   }
 
   finderForm.addEventListener("submit", async function (event) {
     event.preventDefault();
-    finderResult.hidden = true;
+    finderResults.replaceChildren();
+    setFinderStatus("", "loading");
     if (!apiReady) {
-      showFinderResult("Finder is not ready yet", "Wait for the connection status above to show that the email finder is ready, then try again.", "", "error");
+      setFinderStatus("The finder is not ready yet. Wait for the connection status above, then try again.", "error");
       return;
     }
-    const fullName = document.getElementById("person-full-name").value.trim();
-    const company = document.getElementById("person-company").value.trim();
-    if (fullName.split(/\s+/).filter(Boolean).length < 2) {
-      showFinderResult("Add a first and last name", "Enter the person’s full name to search.", "", "error");
+    const query = finderQuery.value.trim();
+    if (query.length < 5) {
+      setFinderStatus("Describe what you need and where, for example “cafés in Bangalore”.", "error");
       return;
     }
 
     finderBusy = true;
     finderButton.disabled = true;
     finderButton.textContent = "Searching…";
-    showFinderResult("Searching public company sources…", "Checking mail records, company pages, and published email patterns. This usually takes a few seconds.", "", "loading");
+    setFinderStatus("Searching public place listings and checking listed websites for contact details…", "loading");
     const controller = new AbortController();
-    const timeoutId = window.setTimeout(function () { controller.abort(); }, 18000);
+    const timeoutId = window.setTimeout(function () { controller.abort(); }, 20000);
     try {
-      const response = await fetch(`${API_BASE_URL}/email-finder`, {
+      const response = await fetch(`${API_BASE_URL}/lead-finder`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ full_name: fullName, company }),
+        body: JSON.stringify({ query, limit: 20 }),
         signal: controller.signal
       });
       const result = await response.json().catch(function () { return {}; });
-      if (!response.ok) throw new Error(result.detail || "The lookup could not be completed.");
-
-      if (result.result === "found_publicly") {
-        showFinderResult("Email found on a public company page", "This address was published on the company’s website. Domain mail records were also found.", result.email, "success", result.sources);
-      } else if (result.result === "pattern_candidate") {
-        const detail = result.confidence === "domain_format_clue"
-          ? "This unverified guess follows a repeated format found in public company emails. We could not confirm that this mailbox exists."
-          : "This low-confidence guess is based on limited public company email evidence. We could not confirm that this mailbox exists.";
-        showFinderResult("Possible address pattern", detail, result.email, "caution", result.sources);
-      } else if (result.result === "no_mail_server") {
-        showFinderResult("No company mail server found", "The domain did not publish mail-server records, so we could not build a reliable result.", "", "empty");
-      } else {
-        showFinderResult("No public match found", "We couldn’t find a published address or a useful email pattern. Try the person’s full name and the company’s official domain (for example, company.com).", "", "empty", result.pages_checked, "Company pages checked:");
-      }
+      if (!response.ok) throw new Error(result.detail || "The search could not be completed.");
+      renderLeads(result);
     } catch (error) {
       const message = error.name === "AbortError"
-        ? "The search took too long. Check the company domain and try again."
-        : error.message || "Check the company domain and try again.";
-      showFinderResult("Could not complete the lookup", message, "", "error");
+        ? "The search took too long. Try again with a smaller area or a narrower category."
+        : error.message || "Could not reach the public place directory. Try again shortly.";
+      setFinderStatus(message, "error");
     } finally {
       window.clearTimeout(timeoutId);
       finderBusy = false;
       finderButton.disabled = !apiReady;
-      finderButton.textContent = "Find email";
+      finderButton.textContent = "Find places";
     }
   });
 
