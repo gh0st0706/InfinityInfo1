@@ -324,10 +324,10 @@
       <div class="row">
         <div class="col-lg-8 offset-lg-2">
           <div class="section-heading text-center">
-            <h6>NGO &amp; Organization Contacts</h6>
-            <h4>Find a Public <em>Contact</em></h4>
+            <h6>Email Finder</h6>
+            <h4>Find a Work <em>Email</em></h4>
             <div class="line-dec"></div>
-            <p>Find a named staff member or a published team inbox using the organization’s website.</p>
+            <p>Find a professional email address using a person’s name and company domain.</p>
           </div>
           <div class="email-lookup-card">
             <div class="api-status-row">
@@ -335,36 +335,17 @@
               <span id="api-status" role="status" aria-live="polite">Checking backend connection…</span>
             </div>
             <form id="person-finder-form" class="person-finder-form">
-              <div class="finder-search-type">
-                <label class="upload-label" for="finder-search-type">I’m looking for</label>
-                <select id="finder-search-type" name="search_type">
-                  <option value="person">A staff member</option>
-                  <option value="team">A team or department inbox</option>
-                </select>
-              </div>
               <div class="finder-fields">
                 <div class="finder-field">
                   <label class="upload-label" for="person-full-name">Full name</label>
                   <input id="person-full-name" name="full_name" type="text" autocomplete="name" placeholder="Ada Lovelace" required>
-                  <datalist id="finder-team-options">
-                    <option value="Fundraising"></option>
-                    <option value="Partnerships"></option>
-                    <option value="Volunteering"></option>
-                    <option value="Programs"></option>
-                    <option value="Grants"></option>
-                    <option value="Press and media"></option>
-                    <option value="Advocacy"></option>
-                    <option value="Careers"></option>
-                    <option value="Finance"></option>
-                    <option value="Safeguarding"></option>
-                  </datalist>
                 </div>
                 <div class="finder-field">
-                  <label class="upload-label" for="person-company">NGO or organization website</label>
-                  <input id="person-company" name="company" type="text" autocomplete="url" placeholder="example.org or https://example.org" required>
+                  <label class="upload-label" for="person-company">Company website or domain</label>
+                  <input id="person-company" name="company" type="text" autocomplete="url" placeholder="example.com" required>
                 </div>
               </div>
-              <p id="finder-search-help" class="upload-help">Enter a person’s first and last name. We’ll look for public addresses and evidence on the organization’s website.</p>
+              <p class="upload-help">Use a company website such as example.com or https://example.com.</p>
               <button class="main-button" id="person-finder-submit" type="submit">Find email</button>
             </form>
             <div id="person-finder-result" class="finder-result" role="status" aria-live="polite" hidden></div>
