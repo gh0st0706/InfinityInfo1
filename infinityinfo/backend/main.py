@@ -196,6 +196,7 @@ async def inspect_public_company_site(client, domain):
         for path in ("contact", "contact-us", "about", "about-us", "team", "leadership")
     )
     visited = set()
+    checked_pages = set()
     found = {}
     pages_checked = 0
     deadline = asyncio.get_running_loop().time() + 5
@@ -326,7 +327,9 @@ async def inspect_public_company_site(client, domain):
             continue
         pages_checked += 1
         body, final_url = page
-        visited.add(final_url.split("#", 1)[0])
+        final_url = final_url.split("#", 1)[0]
+        visited.add(final_url)
+        checked_pages.add(final_url)
         parser = PublicPageParser()
         parser.feed(body.decode("utf-8", errors="ignore"))
         page_text = " ".join(parser.text_parts)
@@ -348,9 +351,12 @@ async def inspect_public_company_site(client, domain):
             ):
                 urls.append(next_url)
     return {
-        email: sorted(sources)
-        for email, sources in found.items()
-        if email.rsplit("@", 1)[1] == domain
+        "emails": {
+            email: sorted(sources)
+            for email, sources in found.items()
+            if email.rsplit("@", 1)[1] == domain
+        },
+        "pages_checked": sorted(checked_pages),
     }
 
 
@@ -359,9 +365,9 @@ async def lookup_person_publicly(first_name, last_name, domain):
     try:
         mx_records = await resolver.resolve(domain, "MX", lifetime=4)
         if all(record.exchange.to_text() == "." for record in mx_records):
-            return {"found": False, "email": "", "confidence": "", "validation": "", "result": "no_mail_server", "candidates": [], "sources": []}
+            return {"found": False, "email": "", "confidence": "", "validation": "", "result": "no_mail_server", "candidates": [], "sources": [], "pages_checked": []}
     except dns.resolver.NXDOMAIN:
-        return {"found": False, "email": "", "confidence": "", "validation": "", "result": "no_mail_server", "candidates": [], "sources": []}
+        return {"found": False, "email": "", "confidence": "", "validation": "", "result": "no_mail_server", "candidates": [], "sources": [], "pages_checked": []}
     except dns.resolver.NoAnswer:
         # RFC 5321 permits an implicit MX: the domain itself accepts mail.
         try:
@@ -370,19 +376,21 @@ async def lookup_person_publicly(first_name, last_name, domain):
             try:
                 await resolver.resolve(domain, "AAAA", lifetime=3)
             except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
-                return {"found": False, "email": "", "confidence": "", "validation": "", "result": "no_mail_server", "candidates": [], "sources": []}
+                return {"found": False, "email": "", "confidence": "", "validation": "", "result": "no_mail_server", "candidates": [], "sources": [], "pages_checked": []}
     except (dns.resolver.NoNameservers, dns.exception.Timeout, dns.exception.DNSException) as exc:
         raise HTTPException(status_code=503, detail="Could not check company mail records. Please try again.") from exc
 
     async with httpx.AsyncClient(timeout=8, follow_redirects=False) as client:
-        public_evidence = await inspect_public_company_site(client, domain)
+        public_site = await inspect_public_company_site(client, domain)
+    public_evidence = public_site["emails"]
+    pages_checked = public_site["pages_checked"]
 
     first = first_name.casefold()
     last = last_name.casefold()
     direct_matches = [email for email in public_evidence if email.split("@", 1)[0].replace(".", "").replace("_", "").replace("-", "") in {first + last, last + first}]
     if direct_matches:
         sources = sorted({source for email in direct_matches for source in public_evidence[email]})
-        return {"found": True, "email": direct_matches[0], "confidence": "public_source", "validation": "domain_has_mx", "result": "found_publicly", "candidates": [], "sources": sources[:5]}
+        return {"found": True, "email": direct_matches[0], "confidence": "public_source", "validation": "domain_has_mx", "result": "found_publicly", "candidates": [], "sources": sources[:5], "pages_checked": pages_checked[:8]}
 
     separators = [".", "_", "-"]
     generic_mailboxes = {
@@ -423,7 +431,7 @@ async def lookup_person_publicly(first_name, last_name, domain):
         candidates = []
 
     sources = sorted({source for found_sources in public_evidence.values() for source in found_sources})
-    return {"found": False, "email": candidate, "confidence": confidence, "validation": "domain_has_mx", "result": result, "candidates": candidates, "sources": sources[:5]}
+    return {"found": False, "email": candidate, "confidence": confidence, "validation": "domain_has_mx", "result": result, "candidates": candidates, "sources": sources[:5], "pages_checked": pages_checked[:8]}
 
 
 def validate_phone_locally(value, country=None):

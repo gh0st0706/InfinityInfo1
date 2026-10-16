@@ -13,6 +13,10 @@
   const fileNameStatus = document.getElementById("contact-file-name");
   const uploadStatus = document.getElementById("upload-status");
   const submitButton = document.getElementById("upload-submit");
+  let apiReady = false;
+  let finderBusy = false;
+
+  finderButton.disabled = true;
 
   fileInput.addEventListener("change", function () {
     const file = fileInput.files[0];
@@ -21,8 +25,10 @@
   });
 
   function setApiStatus(connected, message) {
+    apiReady = connected;
     apiStatus.textContent = message;
     statusIndicator.classList.toggle("is-connected", connected);
+    finderButton.disabled = !apiReady || finderBusy;
   }
 
   async function checkBackend() {
@@ -42,8 +48,9 @@
 
   checkBackend();
 
-  function showFinderResult(title, detail, email, state, sources = []) {
+  function showFinderResult(title, detail, email, state, sources = [], sourceHeadingText = "Public evidence sources:") {
     finderResult.hidden = false;
+    finderResult.setAttribute("aria-busy", state === "loading" ? "true" : "false");
     finderResult.className = `finder-result is-${state}`;
     finderResult.replaceChildren();
 
@@ -73,7 +80,7 @@
     if (safeSources.length) {
       const sourceHeading = document.createElement("p");
       sourceHeading.className = "finder-sources-heading";
-      sourceHeading.textContent = "Public sources checked:";
+      sourceHeading.textContent = sourceHeadingText;
       finderResult.appendChild(sourceHeading);
       const sourceList = document.createElement("ul");
       sourceList.className = "finder-sources";
@@ -95,23 +102,31 @@
   finderForm.addEventListener("submit", async function (event) {
     event.preventDefault();
     finderResult.hidden = true;
+    if (!apiReady) {
+      showFinderResult("Finder is not ready yet", "Wait for the connection status above to show that the email finder is ready, then try again.", "", "error");
+      return;
+    }
     const fullName = document.getElementById("person-full-name").value.trim();
     const company = document.getElementById("person-company").value.trim();
-    if (fullName.split(/\s+/).length < 2) {
+    if (fullName.split(/\s+/).filter(Boolean).length < 2) {
       showFinderResult("Add a first and last name", "Enter the person’s full name to search.", "", "error");
       return;
     }
 
+    finderBusy = true;
     finderButton.disabled = true;
     finderButton.textContent = "Searching…";
-    showFinderResult("Checking public company information…", "We look for published addresses and company mail setup.", "", "loading");
+    showFinderResult("Searching public company sources…", "Checking mail records, company pages, and published email patterns. This usually takes a few seconds.", "", "loading");
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(function () { controller.abort(); }, 18000);
     try {
       const response = await fetch(`${API_BASE_URL}/email-finder`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ full_name: fullName, company })
+        body: JSON.stringify({ full_name: fullName, company }),
+        signal: controller.signal
       });
-      const result = await response.json();
+      const result = await response.json().catch(function () { return {}; });
       if (!response.ok) throw new Error(result.detail || "The lookup could not be completed.");
 
       if (result.result === "found_publicly") {
@@ -124,12 +139,17 @@
       } else if (result.result === "no_mail_server") {
         showFinderResult("No company mail server found", "The domain did not publish mail-server records, so we could not build a reliable result.", "", "empty");
       } else {
-        showFinderResult("No public match found", "We did not find this person’s address on the company pages we checked. No email was guessed.", "", "empty");
+        showFinderResult("No public match found", "We couldn’t find a published address or a useful email pattern. Try the person’s full name and the company’s official domain (for example, company.com).", "", "empty", result.pages_checked, "Company pages checked:");
       }
     } catch (error) {
-      showFinderResult("Could not complete the lookup", error.message || "Check the domain and try again.", "", "error");
+      const message = error.name === "AbortError"
+        ? "The search took too long. Check the company domain and try again."
+        : error.message || "Check the company domain and try again.";
+      showFinderResult("Could not complete the lookup", message, "", "error");
     } finally {
-      finderButton.disabled = false;
+      window.clearTimeout(timeoutId);
+      finderBusy = false;
+      finderButton.disabled = !apiReady;
       finderButton.textContent = "Find email";
     }
   });
