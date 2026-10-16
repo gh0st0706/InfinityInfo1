@@ -5,6 +5,7 @@ import csv
 import html.parser
 import ipaddress
 import io
+import math
 import os
 import re
 import socket
@@ -476,6 +477,8 @@ LEAD_LOCATION_ALIASES = {
 
 LEAD_SEARCH_CACHE = {}
 LEAD_CACHE_TTL_SECONDS = 3600
+LEAD_LOCATION_CACHE = {}
+LEAD_LOCATION_CACHE_TTL_SECONDS = 7 * 24 * 3600
 
 
 def parse_lead_query(query):
@@ -502,11 +505,7 @@ def parse_lead_query(query):
     return category[:80], location[:100]
 
 
-def build_overpass_lead_query(category, location, limit):
-    area_name = location.split(",", 1)[0].strip()
-    location_aliases = LEAD_LOCATION_ALIASES.get(area_name.casefold(), area_name)
-    location_regex = "|".join(re.escape(part.strip()) for part in location_aliases.split("|"))
-    location_regex = "^(?:" + location_regex + ")$"
+def build_overpass_lead_query(category, location, limit, bounds):
     rules = LEAD_TAG_RULES.get(category.casefold())
     if not rules:
         singular = re.sub(r"ies$", "y", category.casefold())
@@ -529,12 +528,12 @@ def build_overpass_lead_query(category, location, limit):
     selectors = []
     for key, values in rules.items():
         value_regex = "^(?:" + "|".join(re.escape(value) for value in values) + ")$" if key != "name" else "|".join(re.escape(value) for value in values)
-        selector = f'nwr(area.searchArea)["{key}"~"{value_regex}",i];'
+        south, west, north, east = bounds
+        selector = f'nwr["{key}"~"{value_regex}",i]({south},{west},{north},{east});'
         selectors.append(selector)
     selector_block = "\n".join(selectors)
     return (
         f'[out:json][timeout:10];\n'
-        f'area["boundary"="administrative"]["name"~"{location_regex}",i]->.searchArea;\n'
         f'(\n{selector_block}\n);\n'
         f'out center tags {limit};'
     )
@@ -667,17 +666,45 @@ async def find_local_leads(query, limit=20):
     if cached and time.time() - cached[0] < LEAD_CACHE_TTL_SECONDS:
         return cached[1]
 
-    overpass_query = build_overpass_lead_query(category, location, limit)
-    endpoints = [
-        os.getenv("OVERPASS_ENDPOINT", "https://overpass-api.de/api/interpreter"),
-        "https://overpass.kumi.systems/api/interpreter",
-    ]
+    location_key = location.casefold()
+    cached_location = LEAD_LOCATION_CACHE.get(location_key)
     try:
-        async with httpx.AsyncClient(timeout=7, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=12, follow_redirects=True) as client:
             headers = {
                 "User-Agent": "InfinityInfoLeadFinder/1.0 (+https://infinityinfo1-infinityinfo.vercel.app)",
                 "Accept": "application/json",
             }
+            if cached_location and time.time() - cached_location[0] < LEAD_LOCATION_CACHE_TTL_SECONDS:
+                bounds = cached_location[1]
+            else:
+                geocode_response = await client.get(
+                    "https://photon.komoot.io/api/",
+                    params={"q": location, "limit": 1, "lang": "en"},
+                    headers=headers,
+                )
+                geocode_response.raise_for_status()
+                features = geocode_response.json().get("features", [])
+                if not features:
+                    raise HTTPException(status_code=404, detail=f"I couldn't find ‘{location}’. Try adding a city or country.")
+                coordinates = features[0].get("geometry", {}).get("coordinates", [])
+                if len(coordinates) < 2:
+                    raise ValueError("Geocoder returned no coordinates")
+                longitude, latitude = map(float, coordinates[:2])
+                # Keep public Overpass requests small and bounded for reliable response times.
+                latitude_delta = 0.08
+                longitude_delta = 0.08 / max(0.2, abs(math.cos(math.radians(latitude))))
+                bounds = (
+                    round(latitude - latitude_delta, 5),
+                    round(longitude - longitude_delta, 5),
+                    round(latitude + latitude_delta, 5),
+                    round(longitude + longitude_delta, 5),
+                )
+                LEAD_LOCATION_CACHE[location_key] = (time.time(), bounds)
+            overpass_query = build_overpass_lead_query(category, location, limit, bounds)
+            endpoints = [
+                os.getenv("OVERPASS_ENDPOINT", "https://maps.mail.ru/osm/tools/overpass/api/interpreter"),
+                "https://overpass-api.de/api/interpreter",
+            ]
             data = None
             last_error = None
             for endpoint in endpoints:
