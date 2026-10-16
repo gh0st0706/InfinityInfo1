@@ -11,7 +11,7 @@ import socket
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from urllib.parse import urljoin, urlparse
+from urllib.parse import parse_qs, urljoin, urlparse
 from typing import Any
 
 import dns.asyncresolver
@@ -142,6 +142,8 @@ class PublicPageParser(html.parser.HTMLParser):
                 self.links.append(href)
                 if href.lower().startswith("mailto:"):
                     self.text_parts.append(href[7:].split("?", 1)[0])
+                elif href.lower().startswith("tel:"):
+                    self.text_parts.append(href[4:].split("?", 1)[0])
 
 
 EMAIL_PATTERN = re.compile(r"[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?(?:\.[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?)+", re.I)
@@ -663,6 +665,257 @@ async def email_finder(search: PersonFinderSearch):
     domain = normalize_company_domain(search.company)
     result = await lookup_person_publicly(name_parts[0], name_parts[-1], domain)
     return {"name": clean(search.full_name), "domain": domain, **result}
+
+
+class PublicSearchResultParser(html.parser.HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.results = []
+        self.current_title = None
+        self.current_url = ""
+        self.snippet_depth = 0
+        self.current_snippet = []
+        self.snippet_target = None
+
+    def handle_starttag(self, tag, attrs):
+        attributes = dict(attrs)
+        classes = set((attributes.get("class") or "").split())
+        if tag == "a" and "result__a" in classes:
+            self.current_title = []
+            self.current_url = attributes.get("href", "")
+        if "result__snippet" in classes and self.results:
+            self.snippet_target = self.results[-1]
+            self.current_snippet = []
+            self.snippet_depth = 1
+        elif self.snippet_depth:
+            self.snippet_depth += 1
+
+    def handle_data(self, data):
+        if self.current_title is not None:
+            self.current_title.append(data)
+        if self.snippet_depth:
+            self.current_snippet.append(data)
+
+    def handle_endtag(self, tag):
+        if tag == "a" and self.current_title is not None:
+            self.results.append({
+                "title": " ".join("".join(self.current_title).split()),
+                "url": self.current_url,
+                "snippet": "",
+            })
+            self.current_title = None
+            self.current_url = ""
+        elif self.snippet_depth:
+            self.snippet_depth -= 1
+            if self.snippet_depth == 0 and self.snippet_target is not None:
+                self.snippet_target["snippet"] = " ".join(" ".join(self.current_snippet).split())
+                self.snippet_target = None
+                self.current_snippet = []
+
+
+COMPANY_SEARCH_CACHE = {}
+COMPANY_SEARCH_CACHE_TTL_SECONDS = 1800
+
+
+def public_search_result_url(href):
+    parsed = urlparse(urljoin("https://duckduckgo.com/", href))
+    if parsed.hostname and (parsed.hostname == "duckduckgo.com" or parsed.hostname.endswith(".duckduckgo.com")):
+        target = parse_qs(parsed.query).get("uddg", [""])[0]
+        if target:
+            parsed = urlparse(target)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
+        return ""
+    if parsed.hostname == "duckduckgo.com" or parsed.hostname.endswith(".duckduckgo.com"):
+        return ""
+    try:
+        port = parsed.port
+    except ValueError:
+        return ""
+    if port not in {None, 80, 443}:
+        return ""
+    return parsed.geturl()
+
+
+async def read_search_result_page(client, result, location, country):
+    source_url = public_search_result_url(result.get("url", ""))
+    if not source_url:
+        return None
+    parsed_source = urlparse(source_url)
+    try:
+        await assert_public_host(parsed_source.hostname)
+    except HTTPException:
+        return None
+
+    page_url = source_url
+    try:
+        async with asyncio.timeout(4):
+            async with client.stream(
+                "GET", page_url,
+                headers={"User-Agent": "InfinityInfoPublicSearch/1.0 (contact: info@infinityinfo.com)"},
+                follow_redirects=False,
+            ) as response:
+                if response.is_redirect:
+                    destination = urljoin(page_url, response.headers.get("location", ""))
+                    parsed_destination = urlparse(destination)
+                    if parsed_destination.hostname != parsed_source.hostname:
+                        return None
+                    response = await client.get(destination, follow_redirects=False)
+                    if response.status_code >= 400:
+                        return None
+                    content_type = response.headers.get("content-type", "")
+                    body = response.content[:500_000]
+                    page_url = destination
+                else:
+                    if response.status_code >= 400 or "html" not in response.headers.get("content-type", "").lower():
+                        return None
+                    content_type = response.headers.get("content-type", "")
+                    body = bytearray()
+                    async for chunk in response.aiter_bytes():
+                        body.extend(chunk)
+                        if len(body) >= 500_000:
+                            break
+                    body = bytes(body)
+        parser = PublicPageParser()
+        parser.feed(body.decode("utf-8", errors="ignore"))
+    except (httpx.HTTPError, asyncio.TimeoutError, ValueError):
+        parser = PublicPageParser()
+        parser.feed(result.get("snippet", ""))
+        page_url = source_url
+
+    text = " ".join(parser.text_parts)
+    for href in parser.links:
+        contact_url = urljoin(page_url, href)
+        parsed_contact = urlparse(contact_url)
+        try:
+            contact_port = parsed_contact.port
+        except ValueError:
+            continue
+        if (
+            parsed_contact.scheme not in {"http", "https"}
+            or parsed_contact.hostname != parsed_source.hostname
+            or parsed_contact.username
+            or parsed_contact.password
+            or contact_port not in {None, 80, 443}
+            or not re.search(r"contact|about|team|enquir|reach-us", parsed_contact.path, re.I)
+        ):
+            continue
+        try:
+            async with asyncio.timeout(2):
+                async with client.stream(
+                    "GET", contact_url,
+                    headers={"User-Agent": "InfinityInfoPublicSearch/1.0"},
+                    follow_redirects=False,
+                ) as contact_response:
+                    if contact_response.status_code >= 400 or "html" not in contact_response.headers.get("content-type", "").lower():
+                        continue
+                    contact_body = bytearray()
+                    async for chunk in contact_response.aiter_bytes():
+                        contact_body.extend(chunk)
+                        if len(contact_body) >= 300_000:
+                            break
+            contact_parser = PublicPageParser()
+            contact_parser.feed(bytes(contact_body).decode("utf-8", errors="ignore"))
+            parser.text_parts.extend(contact_parser.text_parts)
+            page_url = contact_url
+            break
+        except (httpx.HTTPError, asyncio.TimeoutError, ValueError):
+            continue
+
+    text = " ".join(parser.text_parts)
+    emails = sorted({email.lower() for email in EMAIL_PATTERN.findall(text)})
+    phone_values = []
+    for candidate in re.findall(r"(?<!\d)(?:\+?\d[\d\s().-]{7,}\d)(?!\d)", text):
+        digits = re.sub(r"\D", "", candidate)
+        if 9 <= len(digits) <= 15:
+            phone_values.append(re.sub(r"\s+", " ", candidate).strip())
+
+    website = f"{urlparse(source_url).scheme}://{urlparse(source_url).netloc}"
+    return {
+        "companyName": result.get("title", "").strip()[:240],
+        "address": "",
+        "street": "",
+        "city": location,
+        "state": "",
+        "postalCode": "",
+        "country": country,
+        "email": emails[0] if emails else "",
+        "phone": phone_values[0] if phone_values else "",
+        "website": website,
+        "locationType": "Unverified",
+        "source": "Public web search",
+        "sourceUrl": page_url,
+    }
+
+
+@app.get("/search")
+@app.get("/api/search")
+async def search_companies(query: str, location: str = "", country: str = ""):
+    query = clean(query)
+    location = clean(location)
+    country = clean(country)
+    if not query:
+        raise HTTPException(status_code=400, detail="Enter a company name, industry, or search phrase.")
+    if len(query) > 180 or len(location) > 120 or len(country) > 80:
+        raise HTTPException(status_code=400, detail="Search fields exceed the allowed length.")
+
+    cache_key = "|".join((query.casefold(), location.casefold(), country.casefold()))
+    cached = COMPANY_SEARCH_CACHE.get(cache_key)
+    if cached and time.time() - cached[0] < COMPANY_SEARCH_CACHE_TTL_SECONDS:
+        return cached[1]
+
+    search_query = " ".join(part for part in (query, location, country, "official contact email website") if part)
+    headers = {
+        "User-Agent": "Mozilla/5.0 (compatible; InfinityInfoPublicSearch/1.0; +https://infinityinfo1-infinityinfo.vercel.app)",
+        "Accept": "text/html,application/xhtml+xml",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=12, follow_redirects=False) as client:
+            response = await client.get(
+                "https://html.duckduckgo.com/html/",
+                params={"q": search_query},
+                headers=headers,
+            )
+            response.raise_for_status()
+            parser = PublicSearchResultParser()
+            parser.feed(response.text)
+            search_results = []
+            for result in parser.results:
+                result["url"] = public_search_result_url(result.get("url", ""))
+                if result["title"] and result["url"]:
+                    search_results.append(result)
+                if len(search_results) == 8:
+                    break
+
+            semaphore = asyncio.Semaphore(4)
+            async def inspect_result(result):
+                async with semaphore:
+                    return await read_search_result_page(client, result, location, country)
+            enriched = await asyncio.gather(*(inspect_result(result) for result in search_results))
+    except (httpx.HTTPError, ValueError, asyncio.TimeoutError) as exc:
+        raise HTTPException(status_code=503, detail="Public web search is temporarily unavailable. Try again shortly.") from exc
+
+    results = []
+    seen = set()
+    for company in enriched:
+        if not company:
+            continue
+        key = "|".join((company["companyName"].casefold(), company["sourceUrl"].casefold()))
+        if key not in seen:
+            seen.add(key)
+            results.append(company)
+        if len(results) >= 10:
+            break
+
+    payload = {
+        "total": len(results),
+        "results": results,
+        "warnings": [] if results else ["No public web results could be opened for this search."],
+    }
+    COMPANY_SEARCH_CACHE[cache_key] = (time.time(), payload)
+    if len(COMPANY_SEARCH_CACHE) > 100:
+        oldest = min(COMPANY_SEARCH_CACHE, key=lambda key: COMPANY_SEARCH_CACHE[key][0])
+        COMPANY_SEARCH_CACHE.pop(oldest, None)
+    return payload
 
 
 @app.post("/validate")

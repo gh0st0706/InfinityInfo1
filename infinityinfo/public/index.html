@@ -20,6 +20,7 @@
     <!-- Additional CSS Files -->
     <link rel="stylesheet" href="assets/css/fontawesome.css">
     <link rel="stylesheet" href="assets/css/style.css?v=email-tool-ready-20261016">
+    <link rel="stylesheet" href="assets/css/company-finder.css?v=company-finder-20261016">
     <link rel="stylesheet" href="assets/css/animated.css">
     <link rel="stylesheet" href="assets/css/owl.css">
     <link rel="stylesheet" href="assets/phone-checker/phone-checker.css">
@@ -78,6 +79,7 @@
               <li class="scroll-to-section"><a href="#top" class="active">Home</a></li>
               <li class="scroll-to-section"><a href="#about">About</a></li>
               <li class="scroll-to-section"><a href="#services">Services</a></li>
+              <li class="scroll-to-section"><a href="#company-finder">Company Finder</a></li>
               <li class="scroll-to-section"><a href="#email-lookup">Email Appending</a></li>
               <li class="scroll-to-section"><a href="#phone-checker">Phone Checker</a></li>
               <li class="scroll-to-section"><a href="#contact">Contact</a></li> 
@@ -319,6 +321,52 @@
     </div>
   </div>
 
+  <section id="company-finder" class="company-finder-section section">
+    <div class="container">
+      <div class="section-heading text-center">
+        <h6>Company Finder</h6>
+        <h4>Find Company <em>Locations</em></h4>
+        <div class="line-dec"></div>
+        <p>Search the public web for organizations and collect contact details published on their websites.</p>
+      </div>
+      <div class="company-finder">
+        <form id="company-search-form" class="company-finder-form">
+          <div class="company-field">
+            <label for="company-query">What are you looking for? <span aria-hidden="true">*</span></label>
+            <input id="company-query" name="query" required maxlength="180" placeholder="e.g. accounting firms, SaaS companies">
+          </div>
+          <div class="company-field">
+            <label for="company-location">City or region</label>
+            <input id="company-location" name="location" maxlength="120" placeholder="e.g. Bengaluru, Maharashtra">
+          </div>
+          <div class="company-field">
+            <label for="company-country">Country</label>
+            <input id="company-country" name="country" maxlength="80" placeholder="e.g. India, United States">
+          </div>
+          <button id="company-search-button" class="main-button" type="submit">Search companies</button>
+        </form>
+        <p class="company-finder-helper">Search public webpages for organizations and their listed contact details. Verify information on the source page before contacting anyone.</p>
+      </div>
+      <div class="company-finder-results">
+        <div class="company-results-heading">
+          <div>
+            <h3>Search results</h3>
+            <p id="company-result-summary">Enter your search criteria to get started.</p>
+          </div>
+          <button id="company-export-button" class="company-export-button" type="button" disabled>Export CSV</button>
+        </div>
+        <p id="company-search-status" class="company-search-status" role="status" aria-live="polite"></p>
+        <div class="company-table-wrap">
+          <table class="company-results-table">
+            <thead><tr><th>Company / page</th><th>Location type</th><th>Street / address</th><th>City / region</th><th>State</th><th>Postal code</th><th>Country</th><th>Public email</th><th>Business phone</th><th>Website</th><th>Source</th></tr></thead>
+            <tbody id="company-results-body"><tr><td colspan="11" class="company-empty-cell">Search for a company or industry to get started.</td></tr></tbody>
+          </table>
+        </div>
+        <p class="company-finder-disclaimer">“Unverified” means a result has not been independently confirmed as a headquarters or branch. A listed company phone is not necessarily a direct employee number.</p>
+      </div>
+    </div>
+  </section>
+
   <section id="email-lookup" class="email-lookup section">
     <div class="container">
       <div class="row">
@@ -539,6 +587,7 @@
   <script src="assets/js/custom.js"></script>
   <script src="assets/js/deployment-config.js"></script>
   <script src="assets/js/backend.js?v=email-tool-ready-20261016"></script>
+  <script src="assets/js/company-finder.js?v=company-finder-20261016"></script>
   <script src="assets/js/phone-checker-fallback.js"></script>
   <script src="assets/phone-checker/phone-checker.iife.js"></script>
 

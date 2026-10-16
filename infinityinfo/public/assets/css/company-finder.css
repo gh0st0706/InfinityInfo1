@@ -1,0 +1,244 @@
+#company-finder {
+  padding: 88px 0;
+  background: #f7f7f7;
+}
+
+#company-finder .section-heading {
+  margin-bottom: 34px;
+}
+
+.company-finder,
+.company-finder-results {
+  padding: clamp(18px, 3vw, 30px);
+  border: 1px solid #e5e8ef;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 8px 32px rgba(37, 47, 74, 0.06);
+}
+
+.company-finder-form {
+  display: grid;
+  grid-template-columns: minmax(220px, 2fr) repeat(2, minmax(150px, 1fr)) auto;
+  align-items: end;
+  gap: 14px;
+}
+
+.company-field {
+  min-width: 0;
+}
+
+.company-field label {
+  display: block;
+  margin-bottom: 8px;
+  color: #2a2a2a;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.company-field label span {
+  color: #d9534f;
+}
+
+.company-field input,
+.company-field select {
+  display: block;
+  width: 100%;
+  min-height: 48px;
+  padding: 11px 12px;
+  border: 1px solid #d5d9e2;
+  border-radius: 8px;
+  background: #fff;
+  color: #252f4a;
+  font: inherit;
+  font-size: 14px;
+}
+
+.company-field input:focus,
+.company-field select:focus {
+  border-color: #5965d8;
+  outline: 3px solid rgba(89, 101, 216, 0.14);
+}
+
+.company-finder-form .main-button {
+  min-height: 48px;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.company-finder-form .main-button:disabled,
+.company-export-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.company-finder-helper,
+.company-finder-disclaimer {
+  margin: 16px 0 0;
+  color: #727782;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.company-finder-results {
+  margin-top: 22px;
+}
+
+.company-results-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.company-results-heading h3 {
+  margin: 0 0 6px;
+  color: #252f4a;
+  font-size: 21px;
+  font-weight: 700;
+}
+
+.company-results-heading p {
+  margin: 0;
+  color: #727782;
+  font-size: 13px;
+}
+
+.company-export-button {
+  min-height: 42px;
+  padding: 0 17px;
+  border: 1px solid #d9def5;
+  border-radius: 8px;
+  background: #f1f3ff;
+  color: #4c57c7;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.company-export-button:hover:not(:disabled) {
+  background: #e7eaff;
+}
+
+.company-search-status {
+  margin: 0 0 12px;
+  color: #727782;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-line;
+}
+
+.company-search-status.is-error {
+  color: #b42318;
+}
+
+.company-search-status.is-success {
+  color: #067647;
+}
+
+.company-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid #e2e6ee;
+  border-radius: 10px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.company-results-table {
+  width: 100%;
+  min-width: 1050px;
+  border-collapse: collapse;
+  color: #313949;
+  text-align: left;
+  font-size: 12px;
+}
+
+.company-results-table thead {
+  background: #f3f5fb;
+}
+
+.company-results-table th,
+.company-results-table td {
+  padding: 12px 11px;
+  border-bottom: 1px solid #edf0f5;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.company-results-table th {
+  color: #596173;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.company-results-table tbody tr:hover {
+  background: #fafbff;
+}
+
+.company-results-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.company-result-name {
+  min-width: 145px;
+  color: #4256a6;
+  font-weight: 700;
+}
+
+.company-type-select {
+  min-width: 112px;
+  padding: 7px;
+  border: 1px solid #d5d9e2;
+  border-radius: 6px;
+  background: #fff;
+  color: #313949;
+  font: inherit;
+}
+
+.company-website-link {
+  color: #4256a6;
+  text-decoration: none;
+}
+
+.company-website-link:hover {
+  text-decoration: underline;
+}
+
+.company-empty-cell {
+  padding: 32px 16px !important;
+  color: #858b98;
+  text-align: center;
+}
+
+.company-finder-disclaimer {
+  margin-top: 14px;
+}
+
+@media (max-width: 1100px) {
+  .company-finder-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 600px) {
+  #company-finder {
+    padding: 66px 0;
+  }
+
+  .company-finder-form {
+    grid-template-columns: 1fr;
+  }
+
+  .company-finder-form .main-button {
+    width: 100%;
+  }
+
+  .company-results-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .company-export-button {
+    width: 100%;
+  }
+}

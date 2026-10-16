@@ -6,6 +6,8 @@ The Vercel project serves the static site from `public/` and runs the FastAPI ap
 
 Before using email enrichment, add `HUNTER_API_KEY` to the Vercel project under **Settings → Environment Variables**. Set it for Production and Preview, then redeploy so Functions receive the value. Keep the variable encrypted and do not commit it to the repository.
 
+The Company Finder uses its own server-side public-web search and page parser. It does not require Google Places or a commercial B2B API key. Search results are cached for 30 minutes, and the crawler reads only a small number of result pages per search.
+
 Phone number format validation works without a provider account. To enable optional carrier and line-type lookup, add `TWILIO_API_KEY` and `TWILIO_API_SECRET` as server environment variables. The values stay on the server; the browser sends only the number and lookup choice.
 
 ## Upload limits
