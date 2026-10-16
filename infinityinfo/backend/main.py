@@ -186,42 +186,87 @@ async def inspect_public_company_site(client, domain):
     else:
         allowed_hosts.add(f"www.{domain}")
         urls.append(f"https://www.{domain}/")
+
+    # A lot of company sites keep their contact information off the homepage.
+    # Seed the common public pages so the finder does not depend on navigation
+    # order or a site's home page being rendered as static HTML.
+    urls.extend(
+        f"https://{domain}/{path}"
+        for path in ("contact", "contact-us", "about", "about-us", "team", "leadership")
+    )
     visited = set()
     found = set()
-    for _ in range(5):
-        if not urls:
-            break
+    pages_checked = 0
+    deadline = asyncio.get_running_loop().time() + 5
+
+    async def read_public_page(url):
+        for _ in range(6):
+            parsed = urlparse(url)
+            if (
+                parsed.scheme not in {"http", "https"}
+                or parsed.hostname not in allowed_hosts
+                or parsed.port not in {None, 80, 443}
+                or parsed.username
+                or parsed.password
+            ):
+                return None
+            try:
+                async with client.stream(
+                    "GET", url, headers={"User-Agent": "InfinityInfoEmailFinder/1.0"},
+                    follow_redirects=False,
+                ) as response:
+                    if response.is_redirect:
+                        location = response.headers.get("location")
+                        if not location:
+                            return None
+                        url = urljoin(url, location)
+                        continue
+                    if response.status_code >= 400 or "html" not in response.headers.get("content-type", "").lower():
+                        return None
+                    body = bytearray()
+                    async for chunk in response.aiter_bytes():
+                        body.extend(chunk)
+                        if len(body) > 1_000_000:
+                            break
+                    return bytes(body), url
+            except (httpx.HTTPError, ValueError):
+                return None
+        return None
+
+    while urls and pages_checked < 12:
         url = urls.pop(0)
         parsed_url = urlparse(url)
-        if parsed_url.hostname not in allowed_hosts or url in visited:
+        normalized_url = url.split("#", 1)[0]
+        if parsed_url.hostname not in allowed_hosts or normalized_url in visited:
             continue
-        visited.add(url)
+        visited.add(normalized_url)
+        remaining = deadline - asyncio.get_running_loop().time()
+        if remaining <= 0:
+            break
         try:
-            async with client.stream("GET", url, headers={"User-Agent": "InfinityInfoEmailFinder/1.0"}) as response:
-                if response.status_code >= 400 or "html" not in response.headers.get("content-type", "").lower():
-                    continue
-                body = bytearray()
-                async for chunk in response.aiter_bytes():
-                    body.extend(chunk)
-                    if len(body) > 1_000_000:
-                        break
-            parser = PublicPageParser()
-            parser.feed(body.decode("utf-8", errors="ignore"))
-            found.update(email.lower() for email in EMAIL_PATTERN.findall(" ".join(parser.text_parts)))
-            for href in parser.links:
-                next_url = urljoin(url, href)
-                next_parsed = urlparse(next_url)
-                if (
-                    next_parsed.scheme in {"http", "https"}
-                    and next_parsed.hostname in allowed_hosts
-                    and next_parsed.port in {None, 80, 443}
-                    and not next_parsed.username
-                    and not next_parsed.password
-                    and next_url not in visited
-                ):
-                    urls.append(next_url.split("#", 1)[0])
-        except (httpx.HTTPError, ValueError):
+            page = await asyncio.wait_for(read_public_page(url), timeout=remaining)
+        except asyncio.TimeoutError:
+            break
+        if not page:
             continue
+        pages_checked += 1
+        body, final_url = page
+        visited.add(final_url.split("#", 1)[0])
+        parser = PublicPageParser()
+        parser.feed(body.decode("utf-8", errors="ignore"))
+        found.update(email.lower() for email in EMAIL_PATTERN.findall(" ".join(parser.text_parts)))
+        for href in parser.links:
+            next_url = urljoin(final_url, href).split("#", 1)[0]
+            next_parsed = urlparse(next_url)
+            if (
+                next_parsed.scheme in {"http", "https"}
+                and next_parsed.hostname in allowed_hosts
+                and next_parsed.port in {None, 80, 443}
+                and not next_parsed.username
+                and not next_parsed.password
+                and next_url not in visited
+            ):
+                urls.append(next_url)
     return sorted(email for email in found if email.rsplit("@", 1)[1] == domain)
 
 
