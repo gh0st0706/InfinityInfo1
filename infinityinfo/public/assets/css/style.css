@@ -798,6 +798,12 @@ header
   gap: 20px;
 }
 
+.finder-search-type {
+  max-width: 420px;
+  margin-bottom: 16px;
+}
+
+.finder-search-type select,
 .finder-field input {
   display: block;
   width: 100%;
@@ -810,6 +816,7 @@ header
   font: inherit;
 }
 
+.finder-search-type select:focus,
 .finder-field input:focus {
   border-color: #4771e6;
   outline: 3px solid rgba(71, 113, 230, 0.15);

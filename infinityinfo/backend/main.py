@@ -8,6 +8,7 @@ import io
 import os
 import re
 import socket
+import unicodedata
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
@@ -109,8 +110,9 @@ class EmailSearch(BaseModel):
 
 
 class PersonFinderSearch(BaseModel):
-    full_name: str
+    full_name: str = ""
     company: str
+    search_type: str = "person"
 
 
 class PhoneValidationRequest(BaseModel):
@@ -360,37 +362,69 @@ async def inspect_public_company_site(client, domain):
     }
 
 
-async def lookup_person_publicly(first_name, last_name, domain):
+def no_mail_server_result():
+    return {
+        "has_mail_server": False,
+        "emails": {},
+        "pages_checked": [],
+    }
+
+
+async def lookup_public_company(domain):
     resolver = dns.asyncresolver.Resolver()
     try:
         mx_records = await resolver.resolve(domain, "MX", lifetime=4)
         if all(record.exchange.to_text() == "." for record in mx_records):
-            return {"found": False, "email": "", "confidence": "", "validation": "", "result": "no_mail_server", "candidates": [], "sources": [], "pages_checked": []}
+            return no_mail_server_result()
     except dns.resolver.NXDOMAIN:
-        return {"found": False, "email": "", "confidence": "", "validation": "", "result": "no_mail_server", "candidates": [], "sources": [], "pages_checked": []}
+        return no_mail_server_result()
     except dns.resolver.NoAnswer:
         # RFC 5321 permits an implicit MX: the domain itself accepts mail.
-        try:
-            await resolver.resolve(domain, "A", lifetime=3)
-        except dns.resolver.NoAnswer:
+        address_found = False
+        for record_type in ("A", "AAAA"):
             try:
-                await resolver.resolve(domain, "AAAA", lifetime=3)
+                await resolver.resolve(domain, record_type, lifetime=3)
+                address_found = True
+                break
             except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
-                return {"found": False, "email": "", "confidence": "", "validation": "", "result": "no_mail_server", "candidates": [], "sources": [], "pages_checked": []}
+                continue
+        if not address_found:
+            return no_mail_server_result()
     except (dns.resolver.NoNameservers, dns.exception.Timeout, dns.exception.DNSException) as exc:
         raise HTTPException(status_code=503, detail="Could not check company mail records. Please try again.") from exc
 
     async with httpx.AsyncClient(timeout=8, follow_redirects=False) as client:
         public_site = await inspect_public_company_site(client, domain)
+    return {"has_mail_server": True, **public_site}
+
+
+def no_public_match_result(pages_checked, contact_type="person"):
+    return {
+        "found": False,
+        "email": "",
+        "confidence": "",
+        "validation": "domain_has_mx",
+        "result": "not_found_publicly",
+        "contact_type": contact_type,
+        "candidates": [],
+        "sources": [],
+        "pages_checked": pages_checked[:8],
+    }
+
+
+async def lookup_person_publicly(first_name, last_name, domain):
+    public_site = await lookup_public_company(domain)
+    if not public_site["has_mail_server"]:
+        return {"found": False, "email": "", "confidence": "", "validation": "", "result": "no_mail_server", "contact_type": "person", "candidates": [], "sources": [], "pages_checked": []}
     public_evidence = public_site["emails"]
     pages_checked = public_site["pages_checked"]
 
-    first = first_name.casefold()
-    last = last_name.casefold()
-    direct_matches = [email for email in public_evidence if email.split("@", 1)[0].replace(".", "").replace("_", "").replace("-", "") in {first + last, last + first}]
+    first = normalize_person_name(first_name)
+    last = normalize_person_name(last_name)
+    direct_matches = [email for email in public_evidence if normalize_person_name(email.split("@", 1)[0]) in {first + last, last + first}]
     if direct_matches:
         sources = sorted({source for email in direct_matches for source in public_evidence[email]})
-        return {"found": True, "email": direct_matches[0], "confidence": "public_source", "validation": "domain_has_mx", "result": "found_publicly", "candidates": [], "sources": sources[:5], "pages_checked": pages_checked[:8]}
+        return {"found": True, "email": direct_matches[0], "confidence": "public_source", "validation": "domain_has_mx", "result": "found_publicly", "contact_type": "person", "candidates": [], "sources": sources[:5], "pages_checked": pages_checked[:8]}
 
     separators = [".", "_", "-"]
     generic_mailboxes = {
@@ -431,7 +465,81 @@ async def lookup_person_publicly(first_name, last_name, domain):
         candidates = []
 
     sources = sorted({source for found_sources in public_evidence.values() for source in found_sources})
-    return {"found": False, "email": candidate, "confidence": confidence, "validation": "domain_has_mx", "result": result, "candidates": candidates, "sources": sources[:5], "pages_checked": pages_checked[:8]}
+    return {"found": False, "email": candidate, "confidence": confidence, "validation": "domain_has_mx", "result": result, "contact_type": "person", "candidates": candidates, "sources": sources[:5], "pages_checked": pages_checked[:8]}
+
+
+def normalize_person_name(value):
+    decomposed = unicodedata.normalize("NFKD", clean(value))
+    ascii_value = decomposed.encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"[^a-z0-9]", "", ascii_value.casefold())
+
+
+TEAM_CONTACT_TERMS = {
+    "fundraising": {"fundraising", "fundraiser", "fundraisers", "donation", "donations", "giving", "development"},
+    "partnerships": {"partnership", "partnerships", "partner", "partners", "alliance", "alliances", "corporate"},
+    "volunteering": {"volunteer", "volunteers", "volunteering"},
+    "press": {"press", "media", "communications", "comms"},
+    "programs": {"program", "programs", "programme", "programmes"},
+    "grants": {"grant", "grants"},
+    "advocacy": {"advocacy", "campaign", "campaigns", "policy"},
+    "careers": {"career", "careers", "jobs", "recruitment", "hr"},
+    "finance": {"finance", "financial", "accounting", "accounts", "accountant"},
+    "safeguarding": {"safeguarding", "protection", "child", "safety", "welfare"},
+}
+GENERAL_CONTACT_TERMS = {"info", "contact", "hello", "office", "inquiries", "enquiries"}
+
+
+async def lookup_team_contact_publicly(team_query, domain):
+    public_site = await lookup_public_company(domain)
+    if not public_site["has_mail_server"]:
+        return {"found": False, "email": "", "confidence": "", "validation": "", "result": "no_mail_server", "contact_type": "team", "sources": [], "pages_checked": []}
+
+    emails = public_site["emails"]
+    pages_checked = public_site["pages_checked"]
+    query_tokens = set(re.findall(r"[a-z0-9]+", team_query.casefold()))
+    matching_groups = [terms for terms in TEAM_CONTACT_TERMS.values() if query_tokens & terms]
+    search_terms = set().union(*matching_groups) if matching_groups else query_tokens
+    team_matches = []
+    for email, sources in emails.items():
+        local = email.split("@", 1)[0].casefold()
+        local_tokens = set(re.findall(r"[a-z0-9]+", local))
+        overlap = search_terms & local_tokens
+        if overlap:
+            team_matches.append((len(overlap), email, sources))
+
+    if team_matches:
+        team_matches.sort(key=lambda item: (-item[0], item[1]))
+        _, email, sources = team_matches[0]
+        return {
+            "found": True,
+            "email": email,
+            "confidence": "public_source",
+            "validation": "domain_has_mx",
+            "result": "role_contact_found",
+            "contact_type": "team",
+            "sources": sources[:5],
+            "pages_checked": pages_checked[:8],
+        }
+
+    general_matches = [
+        (email, sources)
+        for email, sources in emails.items()
+        if set(re.findall(r"[a-z0-9]+", email.split("@", 1)[0].casefold())) & GENERAL_CONTACT_TERMS
+    ]
+    if general_matches:
+        email, sources = sorted(general_matches, key=lambda item: item[0])[0]
+        return {
+            "found": True,
+            "email": email,
+            "confidence": "public_source",
+            "validation": "domain_has_mx",
+            "result": "general_contact_found",
+            "contact_type": "team",
+            "sources": sources[:5],
+            "pages_checked": pages_checked[:8],
+        }
+
+    return no_public_match_result(pages_checked, contact_type="team")
 
 
 def validate_phone_locally(value, country=None):
@@ -654,14 +762,23 @@ async def find_email(search: EmailSearch):
 @app.post("/email-finder")
 @app.post("/api/email-finder")
 async def email_finder(search: PersonFinderSearch):
-    name_parts = clean(search.full_name).split()
-    if len(name_parts) < 2:
+    search_type = clean(search.search_type).lower()
+    query = clean(search.full_name)
+    if search_type not in {"person", "team"}:
+        raise HTTPException(status_code=400, detail="Choose a person or team contact search")
+    if search_type == "person" and len(query.split()) < 2:
         raise HTTPException(status_code=400, detail="Enter a first and last name")
-    if len(search.full_name) > 120:
-        raise HTTPException(status_code=400, detail="Name must be 120 characters or fewer")
+    if search_type == "team" and len(query) < 2:
+        raise HTTPException(status_code=400, detail="Enter a team or department, such as fundraising")
+    if len(query) > 120:
+        raise HTTPException(status_code=400, detail="Search text must be 120 characters or fewer")
     domain = normalize_company_domain(search.company)
-    result = await lookup_person_publicly(name_parts[0], name_parts[-1], domain)
-    return {"name": clean(search.full_name), "domain": domain, **result}
+    if search_type == "team":
+        result = await lookup_team_contact_publicly(query, domain)
+    else:
+        name_parts = query.split()
+        result = await lookup_person_publicly(name_parts[0], name_parts[-1], domain)
+    return {"query": query, "domain": domain, **result}
 
 
 @app.post("/validate")

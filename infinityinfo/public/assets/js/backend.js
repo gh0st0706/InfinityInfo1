@@ -8,6 +8,10 @@
   const form = document.getElementById("email-lookup-form");
   const finderForm = document.getElementById("person-finder-form");
   const finderButton = document.getElementById("person-finder-submit");
+  const finderTypeInput = document.getElementById("finder-search-type");
+  const finderQueryInput = document.getElementById("person-full-name");
+  const finderQueryLabel = finderQueryInput.closest(".finder-field").querySelector("label");
+  const finderHelp = document.getElementById("finder-search-help");
   const finderResult = document.getElementById("person-finder-result");
   const fileInput = document.getElementById("contact-file");
   const fileNameStatus = document.getElementById("contact-file-name");
@@ -47,6 +51,18 @@
   }
 
   checkBackend();
+
+  finderTypeInput.addEventListener("change", function () {
+    const isTeamSearch = finderTypeInput.value === "team";
+    finderQueryLabel.textContent = isTeamSearch ? "Team or department" : "Full name";
+    finderQueryInput.placeholder = isTeamSearch ? "Fundraising, partnerships, volunteering…" : "Ada Lovelace";
+    finderQueryInput.autocomplete = isTeamSearch ? "off" : "name";
+    if (isTeamSearch) finderQueryInput.setAttribute("list", "finder-team-options");
+    else finderQueryInput.removeAttribute("list");
+    finderHelp.textContent = isTeamSearch
+      ? "Enter a function such as fundraising, partnerships, volunteering, press, or programs. Only published inboxes are returned."
+      : "Enter a person’s first and last name. We’ll look for public addresses and evidence on the organization’s website.";
+  });
 
   function showFinderResult(title, detail, email, state, sources = [], sourceHeadingText = "Public evidence sources:") {
     finderResult.hidden = false;
@@ -106,40 +122,56 @@
       showFinderResult("Finder is not ready yet", "Wait for the connection status above to show that the email finder is ready, then try again.", "", "error");
       return;
     }
-    const fullName = document.getElementById("person-full-name").value.trim();
+    const searchType = finderTypeInput.value;
+    const query = finderQueryInput.value.trim();
     const company = document.getElementById("person-company").value.trim();
-    if (fullName.split(/\s+/).filter(Boolean).length < 2) {
+    if (searchType === "person" && query.split(/\s+/).filter(Boolean).length < 2) {
       showFinderResult("Add a first and last name", "Enter the person’s full name to search.", "", "error");
+      return;
+    }
+    if (searchType === "team" && query.length < 2) {
+      showFinderResult("Add a team or department", "For example, try fundraising, partnerships, or volunteering.", "", "error");
       return;
     }
 
     finderBusy = true;
     finderButton.disabled = true;
     finderButton.textContent = "Searching…";
-    showFinderResult("Searching public company sources…", "Checking mail records, company pages, and published email patterns. This usually takes a few seconds.", "", "loading");
+    const loadingDetail = searchType === "team"
+      ? "Checking mail records and public organization pages for a published team inbox. This usually takes a few seconds."
+      : "Checking mail records, organization pages, and published email patterns. This usually takes a few seconds.";
+    showFinderResult("Searching public organization sources…", loadingDetail, "", "loading");
     const controller = new AbortController();
     const timeoutId = window.setTimeout(function () { controller.abort(); }, 18000);
     try {
       const response = await fetch(`${API_BASE_URL}/email-finder`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ full_name: fullName, company }),
+        body: JSON.stringify({ full_name: query, company, search_type: searchType }),
         signal: controller.signal
       });
       const result = await response.json().catch(function () { return {}; });
       if (!response.ok) throw new Error(result.detail || "The lookup could not be completed.");
 
       if (result.result === "found_publicly") {
-        showFinderResult("Email found on a public company page", "This address was published on the company’s website. Domain mail records were also found.", result.email, "success", result.sources);
+        showFinderResult("Email found on a public organization page", "This address was published on the organization’s website. Domain mail records were also found.", result.email, "success", result.sources);
+      } else if (result.result === "role_contact_found") {
+        showFinderResult(`${query} inbox found`, "This team address is published on the organization’s website. It was not inferred.", result.email, "success", result.sources);
+      } else if (result.result === "general_contact_found") {
+        showFinderResult("General organization inbox found", `We did not find a public ${query}-specific inbox, but this general contact address is published on the organization’s website.`, result.email, "caution", result.sources);
       } else if (result.result === "pattern_candidate") {
         const detail = result.confidence === "domain_format_clue"
-          ? "This unverified guess follows a repeated format found in public company emails. We could not confirm that this mailbox exists."
-          : "This low-confidence guess is based on limited public company email evidence. We could not confirm that this mailbox exists.";
+          ? "This unverified guess follows a repeated format found in public organization emails. We could not confirm that this mailbox exists."
+          : "This low-confidence guess is based on limited public organization email evidence. We could not confirm that this mailbox exists.";
         showFinderResult("Possible address pattern", detail, result.email, "caution", result.sources);
       } else if (result.result === "no_mail_server") {
-        showFinderResult("No company mail server found", "The domain did not publish mail-server records, so we could not build a reliable result.", "", "empty");
+        showFinderResult("No organization mail server found", "The domain does not publish mail-server records, so we could not return an email contact.", "", "empty");
       } else {
-        showFinderResult("No public match found", "We couldn’t find a published address or a useful email pattern. Try the person’s full name and the company’s official domain (for example, company.com).", "", "empty", result.pages_checked, "Company pages checked:");
+        const title = searchType === "team" ? "No public team inbox found" : "No public match found";
+        const detail = searchType === "team"
+          ? `We couldn’t find a published ${query}-specific or general inbox. No address was guessed. Try another team name or check the organization’s domain.`
+          : "We couldn’t find a published address or a useful email pattern. Try the person’s full name and the organization’s official domain.";
+        showFinderResult(title, detail, "", "empty", result.pages_checked, "Organization pages checked:");
       }
     } catch (error) {
       const message = error.name === "AbortError"
