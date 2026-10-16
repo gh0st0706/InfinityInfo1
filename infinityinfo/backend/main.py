@@ -137,12 +137,26 @@ class PublicPageParser(html.parser.HTMLParser):
         self.text_parts.append(data)
 
     def handle_starttag(self, tag, attrs):
+        attributes = dict(attrs)
         if tag.lower() == "a":
-            href = dict(attrs).get("href", "")
+            href = attributes.get("href", "")
             if href:
                 self.links.append(href)
                 if href.lower().startswith("mailto:"):
                     self.text_parts.append(href[7:].split("?", 1)[0])
+        # Cloudflare protects some addresses using a small XOR-encoded value.
+        # Decode it locally so a published mailto contact remains discoverable.
+        encoded_email = attributes.get("data-cfemail", "")
+        if encoded_email:
+            try:
+                payload = bytes.fromhex(encoded_email)
+                if payload:
+                    key = payload[0]
+                    decoded_email = "".join(chr(value ^ key) for value in payload[1:])
+                    if "@" in decoded_email:
+                        self.text_parts.append(decoded_email)
+            except ValueError:
+                pass
 
 
 EMAIL_PATTERN = re.compile(r"[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?(?:\.[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?)+", re.I)
@@ -212,7 +226,14 @@ async def inspect_public_company_site(client, domain, search_context=""):
             relevant_paths.extend(TEAM_ROUTE_HINTS.get(group, ()))
             relevant_terms.update(terms)
     relevant_paths.extend(token for token in query_tokens if len(token) >= 4)
-    query_urls = [f"https://{domain}/{path}" for path in dict.fromkeys(relevant_paths)]
+    unique_relevant_paths = list(dict.fromkeys(relevant_paths))
+    query_urls = [
+        f"https://{domain}/{path}"
+        for path in (
+            *[f"en/{path}" for path in unique_relevant_paths],
+            *unique_relevant_paths,
+        )
+    ]
     sitemap_path_pattern = re.compile(
         r"contact|about|team|leadership|people|staff|press|media|"
         + "|".join(re.escape(term) for term in sorted(relevant_terms, key=len, reverse=True) if len(term) >= 4),
@@ -519,7 +540,7 @@ TEAM_ROUTE_HINTS = {
     "fundraising": ("fundraising", "donate", "donations", "giving", "support-us"),
     "partnerships": ("partnerships", "corporate-partnerships", "partners"),
     "volunteering": ("volunteer", "volunteering", "get-involved"),
-    "press": ("press", "media", "newsroom"),
+    "press": ("press", "media", "media-centre", "media-center", "newsroom", "press-office"),
     "programs": ("programs", "programmes", "projects"),
     "grants": ("grants", "funding"),
     "advocacy": ("advocacy", "campaigns", "policy"),
