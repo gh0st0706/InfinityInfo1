@@ -8,6 +8,7 @@ import io
 import os
 import re
 import socket
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 from typing import Any
@@ -195,11 +196,11 @@ async def inspect_public_company_site(client, domain):
         for path in ("contact", "contact-us", "about", "about-us", "team", "leadership")
     )
     visited = set()
-    found = set()
+    found = {}
     pages_checked = 0
     deadline = asyncio.get_running_loop().time() + 5
 
-    async def read_public_page(url):
+    async def read_public_page(url, require_html=True):
         for _ in range(6):
             parsed = urlparse(url)
             if (
@@ -221,7 +222,8 @@ async def inspect_public_company_site(client, domain):
                             return None
                         url = urljoin(url, location)
                         continue
-                    if response.status_code >= 400 or "html" not in response.headers.get("content-type", "").lower():
+                    content_type = response.headers.get("content-type", "").lower()
+                    if response.status_code >= 400 or (require_html and "html" not in content_type):
                         return None
                     body = bytearray()
                     async for chunk in response.aiter_bytes():
@@ -232,6 +234,79 @@ async def inspect_public_company_site(client, domain):
             except (httpx.HTTPError, ValueError):
                 return None
         return None
+
+    # Use the site's own robots.txt sitemap declarations and conventional
+    # sitemap locations to discover public contact and staff pages.
+    sitemap_urls = [f"https://{domain}/sitemap.xml"]
+    try:
+        robots = await asyncio.wait_for(
+            read_public_page(f"https://{domain}/robots.txt", require_html=False),
+            timeout=min(0.4, max(0.1, deadline - asyncio.get_running_loop().time())),
+        )
+    except asyncio.TimeoutError:
+        robots = None
+    if robots:
+        robots_text = robots[0].decode("utf-8", errors="ignore")
+        sitemap_urls.extend(
+            line.split(":", 1)[1].strip()
+            for line in robots_text.splitlines()
+            if line.lower().startswith("sitemap:") and ":" in line
+        )
+
+    discovered_urls = []
+    sitemap_queue = list(dict.fromkeys(sitemap_urls))
+    sitemap_seen = set()
+    for _ in range(3):
+        if not sitemap_queue:
+            break
+        sitemap_url = sitemap_queue.pop(0)
+        if sitemap_url in sitemap_seen:
+            continue
+        sitemap_seen.add(sitemap_url)
+        remaining = deadline - asyncio.get_running_loop().time()
+        if remaining <= 0:
+            break
+        try:
+            sitemap = await asyncio.wait_for(
+                read_public_page(sitemap_url, require_html=False), timeout=min(0.4, remaining)
+            )
+        except asyncio.TimeoutError:
+            break
+        if not sitemap:
+            continue
+        try:
+            root = ET.fromstring(sitemap[0])
+        except ET.ParseError:
+            continue
+        is_sitemap_index = root.tag.rsplit("}", 1)[-1] == "sitemapindex"
+        for element in root.iter():
+            if element.tag.rsplit("}", 1)[-1] != "loc" or not element.text:
+                continue
+            candidate_url = element.text.strip()
+            parsed_candidate = urlparse(candidate_url)
+            if (
+                is_sitemap_index
+                and parsed_candidate.scheme in {"http", "https"}
+                and parsed_candidate.hostname in allowed_hosts
+                and parsed_candidate.port in {None, 80, 443}
+                and "sitemap" in parsed_candidate.path.lower()
+            ):
+                sitemap_queue.append(candidate_url)
+                continue
+            if (
+                parsed_candidate.scheme in {"http", "https"}
+                and parsed_candidate.hostname in allowed_hosts
+                and parsed_candidate.port in {None, 80, 443}
+                and not parsed_candidate.username
+                and not parsed_candidate.password
+                and re.search(r"contact|about|team|leadership|people|staff|press|media", parsed_candidate.path, re.I)
+            ):
+                discovered_urls.append(candidate_url.split("#", 1)[0])
+                if len(discovered_urls) >= 12:
+                    break
+        if discovered_urls:
+            break
+    urls.extend(discovered_urls)
 
     while urls and pages_checked < 12:
         url = urls.pop(0)
@@ -254,7 +329,12 @@ async def inspect_public_company_site(client, domain):
         visited.add(final_url.split("#", 1)[0])
         parser = PublicPageParser()
         parser.feed(body.decode("utf-8", errors="ignore"))
-        found.update(email.lower() for email in EMAIL_PATTERN.findall(" ".join(parser.text_parts)))
+        page_text = " ".join(parser.text_parts)
+        page_text = re.sub(r"\s*(?:\[at\]|\(at\)|\{at\})\s*", "@", page_text, flags=re.I)
+        page_text = re.sub(r"\s*(?:\[dot\]|\(dot\)|\{dot\})\s*", ".", page_text, flags=re.I)
+        for email in EMAIL_PATTERN.findall(page_text):
+            normalized_email = email.lower()
+            found.setdefault(normalized_email, set()).add(final_url)
         for href in parser.links:
             next_url = urljoin(final_url, href).split("#", 1)[0]
             next_parsed = urlparse(next_url)
@@ -267,7 +347,11 @@ async def inspect_public_company_site(client, domain):
                 and next_url not in visited
             ):
                 urls.append(next_url)
-    return sorted(email for email in found if email.rsplit("@", 1)[1] == domain)
+    return {
+        email: sorted(sources)
+        for email, sources in found.items()
+        if email.rsplit("@", 1)[1] == domain
+    }
 
 
 async def lookup_person_publicly(first_name, last_name, domain):
@@ -275,9 +359,9 @@ async def lookup_person_publicly(first_name, last_name, domain):
     try:
         mx_records = await resolver.resolve(domain, "MX", lifetime=4)
         if all(record.exchange.to_text() == "." for record in mx_records):
-            return {"found": False, "email": "", "confidence": "", "validation": "", "result": "no_mail_server", "candidates": []}
+            return {"found": False, "email": "", "confidence": "", "validation": "", "result": "no_mail_server", "candidates": [], "sources": []}
     except dns.resolver.NXDOMAIN:
-        return {"found": False, "email": "", "confidence": "", "validation": "", "result": "no_mail_server", "candidates": []}
+        return {"found": False, "email": "", "confidence": "", "validation": "", "result": "no_mail_server", "candidates": [], "sources": []}
     except dns.resolver.NoAnswer:
         # RFC 5321 permits an implicit MX: the domain itself accepts mail.
         try:
@@ -286,28 +370,48 @@ async def lookup_person_publicly(first_name, last_name, domain):
             try:
                 await resolver.resolve(domain, "AAAA", lifetime=3)
             except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
-                return {"found": False, "email": "", "confidence": "", "validation": "", "result": "no_mail_server", "candidates": []}
+                return {"found": False, "email": "", "confidence": "", "validation": "", "result": "no_mail_server", "candidates": [], "sources": []}
     except (dns.resolver.NoNameservers, dns.exception.Timeout, dns.exception.DNSException) as exc:
         raise HTTPException(status_code=503, detail="Could not check company mail records. Please try again.") from exc
 
     async with httpx.AsyncClient(timeout=8, follow_redirects=False) as client:
-        public_emails = await inspect_public_company_site(client, domain)
+        public_evidence = await inspect_public_company_site(client, domain)
 
     first = first_name.casefold()
     last = last_name.casefold()
-    direct_matches = [email for email in public_emails if email.split("@", 1)[0].replace(".", "").replace("_", "").replace("-", "") in {first + last, last + first}]
+    direct_matches = [email for email in public_evidence if email.split("@", 1)[0].replace(".", "").replace("_", "").replace("-", "") in {first + last, last + first}]
     if direct_matches:
-        return {"found": True, "email": direct_matches[0], "confidence": "public_source", "validation": "domain_has_mx", "result": "found_publicly", "candidates": []}
+        sources = sorted({source for email in direct_matches for source in public_evidence[email]})
+        return {"found": True, "email": direct_matches[0], "confidence": "public_source", "validation": "domain_has_mx", "result": "found_publicly", "candidates": [], "sources": sources[:5]}
 
     separators = [".", "_", "-"]
-    sample_locals = [email.split("@", 1)[0] for email in public_emails]
-    observed_separator = next((separator for separator in separators if any(re.fullmatch(r"[a-z]+" + re.escape(separator) + r"[a-z]+", local) for local in sample_locals)), None)
+    generic_mailboxes = {
+        "abuse", "admin", "billing", "careers", "contact", "hello", "hr", "info",
+        "jobs", "legal", "media", "noreply", "no-reply", "office", "postmaster",
+        "press", "privacy", "sales", "security", "support", "team", "webmaster",
+    }
+    sample_locals = []
+    for email in public_evidence:
+        local = email.split("@", 1)[0].lower()
+        first_local_token = re.split(r"[._+-]", local, maxsplit=1)[0]
+        if local not in generic_mailboxes and first_local_token not in generic_mailboxes:
+            sample_locals.append(local)
+    separator_samples = {
+        separator: [
+            local for local in sample_locals
+            if re.fullmatch(r"[a-z]+" + re.escape(separator) + r"[a-z]+", local)
+        ]
+        for separator in separators
+    }
+    observed_separator = next(
+        (separator for separator in separators if separator_samples[separator]), None
+    )
     if observed_separator:
         candidate = f"{first}{observed_separator}{last}@{domain}"
-        confidence = "domain_format_clue"
+        confidence = "domain_format_clue" if len(separator_samples[observed_separator]) >= 2 else "low"
         result = "pattern_candidate"
         candidates = [candidate]
-    elif public_emails:
+    elif sample_locals:
         candidate = f"{first}{last}@{domain}"
         confidence = "low"
         result = "pattern_candidate"
@@ -318,7 +422,8 @@ async def lookup_person_publicly(first_name, last_name, domain):
         result = "not_found_publicly"
         candidates = []
 
-    return {"found": False, "email": candidate, "confidence": confidence, "validation": "domain_has_mx", "result": result, "candidates": candidates}
+    sources = sorted({source for found_sources in public_evidence.values() for source in found_sources})
+    return {"found": False, "email": candidate, "confidence": confidence, "validation": "domain_has_mx", "result": result, "candidates": candidates, "sources": sources[:5]}
 
 
 def validate_phone_locally(value, country=None):

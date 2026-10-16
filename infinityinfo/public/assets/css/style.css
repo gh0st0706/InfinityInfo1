@@ -865,6 +865,26 @@ header
   overflow-wrap: anywhere;
 }
 
+.finder-result .finder-sources-heading {
+  margin-top: 14px;
+  color: #4f5a70;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.finder-sources {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.finder-sources a {
+  color: #2687c6;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .bulk-heading {
   margin-top: 72px;
 }

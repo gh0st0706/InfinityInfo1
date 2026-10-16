@@ -42,7 +42,7 @@
 
   checkBackend();
 
-  function showFinderResult(title, detail, email, state) {
+  function showFinderResult(title, detail, email, state, sources = []) {
     finderResult.hidden = false;
     finderResult.className = `finder-result is-${state}`;
     finderResult.replaceChildren();
@@ -61,6 +61,35 @@
     const note = document.createElement("p");
     note.textContent = detail;
     finderResult.appendChild(note);
+
+    const safeSources = Array.isArray(sources) ? sources.filter(function (source) {
+      try {
+        const url = new URL(source);
+        return url.protocol === "https:" || url.protocol === "http:";
+      } catch (error) {
+        return false;
+      }
+    }).slice(0, 5) : [];
+    if (safeSources.length) {
+      const sourceHeading = document.createElement("p");
+      sourceHeading.className = "finder-sources-heading";
+      sourceHeading.textContent = "Public sources checked:";
+      finderResult.appendChild(sourceHeading);
+      const sourceList = document.createElement("ul");
+      sourceList.className = "finder-sources";
+      safeSources.forEach(function (source) {
+        const url = new URL(source);
+        const item = document.createElement("li");
+        const link = document.createElement("a");
+        link.href = url.href;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.textContent = `${url.hostname}${url.pathname}`;
+        item.appendChild(link);
+        sourceList.appendChild(item);
+      });
+      finderResult.appendChild(sourceList);
+    }
   }
 
   finderForm.addEventListener("submit", async function (event) {
@@ -86,9 +115,12 @@
       if (!response.ok) throw new Error(result.detail || "The lookup could not be completed.");
 
       if (result.result === "found_publicly") {
-        showFinderResult("Email found on a public company page", "This address was published on the company’s website. Domain mail records were also found.", result.email, "success");
+        showFinderResult("Email found on a public company page", "This address was published on the company’s website. Domain mail records were also found.", result.email, "success", result.sources);
       } else if (result.result === "pattern_candidate") {
-        showFinderResult("Possible address pattern", "This is an unverified guess based on a format clue from public company addresses. We could not confirm that this mailbox exists.", result.email, "caution");
+        const detail = result.confidence === "domain_format_clue"
+          ? "This unverified guess follows a repeated format found in public company emails. We could not confirm that this mailbox exists."
+          : "This low-confidence guess is based on limited public company email evidence. We could not confirm that this mailbox exists.";
+        showFinderResult("Possible address pattern", detail, result.email, "caution", result.sources);
       } else if (result.result === "no_mail_server") {
         showFinderResult("No company mail server found", "The domain did not publish mail-server records, so we could not build a reliable result.", "", "empty");
       } else {
