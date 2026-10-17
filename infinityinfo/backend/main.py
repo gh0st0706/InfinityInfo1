@@ -875,6 +875,11 @@ async def search_companies(query: str, location: str = "", country: str = ""):
             output_path = str(Path(temp_dir) / "results.json")
             spider_env = os.environ.copy()
             spider_env["INFINITYINFO_SPIDER_OUTPUT"] = output_path
+            inherited_pythonpath = spider_env.get("PYTHONPATH", "")
+            python_paths = [entry for entry in sys.path if entry]
+            if inherited_pythonpath:
+                python_paths.append(inherited_pythonpath)
+            spider_env["PYTHONPATH"] = os.pathsep.join(dict.fromkeys(python_paths))
             process = await asyncio.create_subprocess_exec(
                 sys.executable, str(spider_path), query, location, country,
                 cwd=str(backend_directory), env=spider_env,
