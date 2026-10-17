@@ -113,7 +113,7 @@ class OrganizationSpider(scrapy.Spider):
             yield scrapy.Request(
                 url, callback=self.parse_search, errback=self.search_error,
                 headers={"Referer": "https://duckduckgo.com/"},
-                meta={"search_index": index, "search_page": 0}, dont_filter=True,
+                meta={"search_index": index, "search_page": 0, "search_terms": terms}, dont_filter=True,
             )
 
     def search_error(self, failure):
@@ -124,7 +124,7 @@ class OrganizationSpider(scrapy.Spider):
             return
         # DDG Lite exposes an explicit next-page form; crawl one additional page
         # for each query instead of stopping at its first ten links.
-        if response.meta.get("search_page", 0) == 0:
+        if response.meta.get("search_page", 0) == 0 and not response.meta.get("search_fallback"):
             next_form = response.css("form.next_form")
             if next_form:
                 form_data = {
@@ -136,10 +136,25 @@ class OrganizationSpider(scrapy.Spider):
                         url=response.url, formdata=form_data,
                         callback=self.parse_search, errback=self.search_error,
                         headers={"Referer": response.url},
-                        meta={"search_index": response.meta.get("search_index", 0), "search_page": 1},
+                        meta={
+                            "search_index": response.meta.get("search_index", 0),
+                            "search_page": 1,
+                            "search_terms": response.meta.get("search_terms", ""),
+                        },
                         dont_filter=True,
                     )
         candidates = response.css("a.result-link, a.result__a, li.b_algo h2 a")
+        if not candidates:
+            if not response.meta.get("search_fallback"):
+                fallback_url = "https://html.duckduckgo.com/html/?" + urlencode({
+                    "q": response.meta.get("search_terms", ""),
+                })
+                yield scrapy.Request(
+                    fallback_url, callback=self.parse_search, errback=self.search_error,
+                    headers={"Referer": "https://duckduckgo.com/"},
+                    meta={**response.meta, "search_fallback": True}, dont_filter=True,
+                )
+            return
         for link in candidates:
             href = link.attrib.get("href", "")
             parsed = urlparse(urljoin(response.url, href))

@@ -932,10 +932,11 @@ async def search_companies(query: str, location: str = "", country: str = ""):
         "results": results,
         "warnings": [] if results else ["No public web results could be opened for this search."],
     }
-    COMPANY_SEARCH_CACHE[cache_key] = (time.time(), payload)
-    if len(COMPANY_SEARCH_CACHE) > 100:
-        oldest = min(COMPANY_SEARCH_CACHE, key=lambda key: COMPANY_SEARCH_CACHE[key][0])
-        COMPANY_SEARCH_CACHE.pop(oldest, None)
+    if results:
+        COMPANY_SEARCH_CACHE[cache_key] = (time.time(), payload)
+        if len(COMPANY_SEARCH_CACHE) > 100:
+            oldest = min(COMPANY_SEARCH_CACHE, key=lambda key: COMPANY_SEARCH_CACHE[key][0])
+            COMPANY_SEARCH_CACHE.pop(oldest, None)
     return payload
 
 
