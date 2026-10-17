@@ -60,9 +60,13 @@
 }
 
 .company-finder-form .main-button {
+  position: relative;
+  z-index: 3;
   min-height: 48px;
   margin: 0;
   white-space: nowrap;
+  pointer-events: auto;
+  cursor: pointer;
 }
 
 .company-finder-form .main-button:disabled,
