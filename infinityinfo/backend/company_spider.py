@@ -74,8 +74,8 @@ class PublicHostGuard:
 
 class OrganizationSpider(scrapy.Spider):
     name = "infinityinfo_organizations"
-    max_seed_hosts = 36
-    max_candidate_pages = 55
+    max_seed_hosts = 50
+    max_candidate_pages = 75
 
     custom_settings = {
         "ROBOTSTXT_OBEY": True,
@@ -103,11 +103,31 @@ class OrganizationSpider(scrapy.Spider):
 
     async def start(self):
         base = " ".join(filter(None, (self.query, self.location, self.country)))
-        search_phrases = (
+        search_phrases = [
             f"{base} official company website",
             f"{base} companies contact us",
-            f"{base} leading firms builders developers",
-        )
+            f"{base} businesses official website",
+        ]
+        query_context = " ".join((self.query, self.location)).casefold()
+        is_real_estate = any(term in query_context for term in (
+            "real estate", "realty", "property developer", "property developers",
+            "builder", "builders", "construction", "housing",
+        ))
+        if is_real_estate:
+            places = [self.location] if self.location else []
+            if "bangalore" in query_context or "bengaluru" in query_context:
+                places.extend(("Bengaluru", "Bangalore"))
+            places = list(dict.fromkeys(place for place in places if place))
+            place = places[0] if places else ""
+            search_phrases.extend((
+                f"real estate developers {place} official website",
+                f"property developers builders {place} company contact",
+                f"residential builders {place} official website",
+                f"commercial real estate companies {place} official",
+            ))
+            for alternate_place in places[1:]:
+                search_phrases.append(f"property developers {alternate_place} official website")
+        search_phrases = list(dict.fromkeys(clean(terms) for terms in search_phrases))
         for index, terms in enumerate(search_phrases):
             url = "https://lite.duckduckgo.com/lite/?" + urlencode({"q": terms})
             yield scrapy.Request(
