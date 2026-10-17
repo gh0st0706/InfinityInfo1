@@ -5,9 +5,13 @@ import csv
 import html.parser
 import ipaddress
 import io
+import json
+import logging
 import os
 import re
 import socket
+import sys
+import tempfile
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -35,6 +39,7 @@ except ImportError:
     xlrd = None
 
 load_dotenv()
+logger = logging.getLogger(__name__)
 
 
 def load_hunter_api_key():
@@ -863,48 +868,52 @@ async def search_companies(query: str, location: str = "", country: str = ""):
     if cached and time.time() - cached[0] < COMPANY_SEARCH_CACHE_TTL_SECONDS:
         return cached[1]
 
-    search_query = " ".join(part for part in (query, location, country, "official contact email website") if part)
-    headers = {
-        "User-Agent": "Mozilla/5.0 (compatible; InfinityInfoPublicSearch/1.0; +https://infinityinfo1-infinityinfo.vercel.app)",
-        "Accept": "text/html,application/xhtml+xml",
-    }
+    backend_directory = Path(__file__).resolve().parent
+    spider_path = backend_directory / "company_spider.py"
     try:
-        async with httpx.AsyncClient(timeout=12, follow_redirects=False) as client:
-            response = await client.get(
-                "https://html.duckduckgo.com/html/",
-                params={"q": search_query},
-                headers=headers,
+        with tempfile.TemporaryDirectory(prefix="infinityinfo-spider-") as temp_dir:
+            output_path = str(Path(temp_dir) / "results.json")
+            spider_env = os.environ.copy()
+            spider_env["INFINITYINFO_SPIDER_OUTPUT"] = output_path
+            process = await asyncio.create_subprocess_exec(
+                sys.executable, str(spider_path), query, location, country,
+                cwd=str(backend_directory), env=spider_env,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
             )
-            response.raise_for_status()
-            parser = PublicSearchResultParser()
-            parser.feed(response.text)
-            search_results = []
-            for result in parser.results:
-                result["url"] = public_search_result_url(result.get("url", ""))
-                if result["title"] and result["url"]:
-                    search_results.append(result)
-                if len(search_results) == 8:
-                    break
-
-            semaphore = asyncio.Semaphore(4)
-            async def inspect_result(result):
-                async with semaphore:
-                    return await read_search_result_page(client, result, location, country)
-            enriched = await asyncio.gather(*(inspect_result(result) for result in search_results))
-    except (httpx.HTTPError, ValueError, asyncio.TimeoutError) as exc:
+            try:
+                _, stderr = await asyncio.wait_for(process.communicate(), timeout=19)
+            except asyncio.TimeoutError:
+                process.kill()
+                await process.wait()
+                raise
+            if process.returncode != 0:
+                detail = stderr.decode("utf-8", errors="replace")[-1200:]
+                raise RuntimeError(detail or "The public web crawler could not start.")
+            results_path = Path(output_path)
+            enriched = json.loads(results_path.read_text(encoding="utf-8")) if results_path.exists() else []
+    except (OSError, ValueError, asyncio.TimeoutError, RuntimeError) as exc:
+        logger.warning("Company search spider failed: %s", exc)
         raise HTTPException(status_code=503, detail="Public web search is temporarily unavailable. Try again shortly.") from exc
 
-    results = []
-    seen = set()
+    results_by_host = {}
     for company in enriched:
         if not company:
             continue
-        key = "|".join((company["companyName"].casefold(), company["sourceUrl"].casefold()))
-        if key not in seen:
-            seen.add(key)
-            results.append(company)
-        if len(results) >= 10:
-            break
+        key = (urlparse(company.get("website", "")).hostname or company.get("companyName", "").casefold()).removeprefix("www.")
+        existing = results_by_host.get(key)
+        if existing is None:
+            results_by_host[key] = company
+            continue
+        for field, value in company.items():
+            if field == "emails":
+                existing[field] = sorted(set(existing.get(field, [])) | set(value or []))
+            elif value and (not existing.get(field) or field in {"address", "description", "street", "city", "state", "postalCode", "country"}):
+                existing[field] = value
+        if re.search(r"contact|about|team|staff", company.get("sourceUrl", ""), re.I):
+            existing["sourceUrl"] = company["sourceUrl"]
+
+    results = list(results_by_host.values())[:10]
 
     payload = {
         "total": len(results),

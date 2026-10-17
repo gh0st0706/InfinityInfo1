@@ -1,5 +1,6 @@
 fastapi
 httpx
+scrapy==2.19.0
 dnspython
 phonenumbers
 openpyxl
