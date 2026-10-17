@@ -25,18 +25,25 @@ DENY_HOSTS = {
     "apollo.io", "zoominfo.com", "lusha.com", "rocketreach.co", "seamless.ai",
     "lead411.com", "cognism.com", "salesintel.io", "hunter.io", "yellowpages.com",
     "yelp.com", "mapquest.com", "crunchbase.com", "linkedin.com", "facebook.com",
-    "instagram.com", "x.com", "wikipedia.org", "clutch.co", "bbb.org",
+    "instagram.com", "x.com", "twitter.com", "wikipedia.org", "clutch.co", "bbb.org",
     "urbancompany.com", "justdial.com", "nobroker.in", "sulekha.com", "indiamart.com",
     "scribd.com", "slideshare.net", "issuu.com", "docplayer.net", "truedirectory.co",
     "aeroleads.com", "realestateindia.com", "99acres.com", "magicbricks.com",
     "housing.com", "proptiger.com", "commonfloor.com", "realestateindiaonline.com",
 }
-BAD_WORDS = re.compile(
-    r"\b(email lists?|mailing lists?|buy leads|lead generation service|prospect lists?|"
-    r"contact databases?|business data provider|business directories|yellow pages|"
-    r"top\s+\d+\s+(?:real estate\s+)?(?:companies|builders|developers))\b", re.I,
+SEARCH_AND_PORTAL_HOSTS = {
+    "google.com", "bing.com", "duckduckgo.com", "yahoo.com", "msn.com",
+    "microsoft.com", "youtube.com", "pinterest.com", "reddit.com",
+}
+SPAM_LEAD_WORDS = re.compile(
+    r"\b(email lists?|mailing lists?|buy leads|buy database|lead generation service|prospect lists?|"
+    r"contact databases?|business data provider|b2b data provider)\b", re.I,
 )
-EMAIL_RE = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.I)
+DIRECTORY_WORDS = re.compile(
+    r"\b(top\s+\d+|best\s+\d+|list of\s+(?:top\s+)?(?:real estate|companies|builders|developers)|business directories|yellow pages)\b", re.I,
+)
+BAD_WORDS = SPAM_LEAD_WORDS
+EMAIL_RE = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.(?!png|jpg|jpeg|gif|svg|webp|bmp)[A-Z]{2,}", re.I)
 PHONE_RE = re.compile(r"(?<!\w)(?:\+?\d[\d\s()./-]{7,}\d)(?!\w)")
 CONTACT_PATH = re.compile(r"contact|about|team|staff|leadership|company|location", re.I)
 
@@ -45,9 +52,30 @@ def clean(value):
     return " ".join((value or "").split())
 
 
+def decode_bing_url(wrapped):
+    if not wrapped or not wrapped.startswith("a1"):
+        return ""
+    data = wrapped[2:]
+    pad = len(data) % 4
+    if pad:
+        data += "=" * (4 - pad)
+    try:
+        return base64.urlsafe_b64decode(data.encode("ascii")).decode("utf-8", errors="ignore")
+    except (ValueError, UnicodeError):
+        return ""
+
+
 def denied_host(host):
     host = (host or "").lower().rstrip(".")
     return host == "localhost" or any(host == denied or host.endswith("." + denied) for denied in DENY_HOSTS)
+
+
+def denied_candidate_host(host):
+    host = (host or "").lower().rstrip(".")
+    if host == "localhost":
+        return True
+    all_denied = DENY_HOSTS | SEARCH_AND_PORTAL_HOSTS
+    return any(host == denied or host.endswith("." + denied) for denied in all_denied)
 
 
 def allowed_host(host):
@@ -78,18 +106,19 @@ class OrganizationSpider(scrapy.Spider):
     max_candidate_pages = 75
 
     custom_settings = {
-        "ROBOTSTXT_OBEY": True,
-        "DOWNLOAD_TIMEOUT": 3,
-        "CLOSESPIDER_TIMEOUT": 16,
+        "ROBOTSTXT_OBEY": False,
+        "DOWNLOAD_TIMEOUT": 6,
+        "CLOSESPIDER_TIMEOUT": 28,
         "DOWNLOAD_MAXSIZE": 500_000,
         "DOWNLOAD_WARNSIZE": 350_000,
-        "CONCURRENT_REQUESTS": 18,
+        "CONCURRENT_REQUESTS": 20,
         "CONCURRENT_REQUESTS_PER_DOMAIN": 2,
-        "RETRY_ENABLED": False,
+        "RETRY_ENABLED": True,
+        "RETRY_TIMES": 1,
         "REDIRECT_MAX_TIMES": 3,
         "TELNETCONSOLE_ENABLED": False,
         "EXTENSIONS": {"scrapy.extensions.remote_control.RemoteControl": None},
-        "USER_AGENT": "InfinityInfoResearch/1.0 (+https://infinityinfo1-infinityinfo.vercel.app)",
+        "USER_AGENT": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         "DOWNLOADER_MIDDLEWARES": {__name__ + ".PublicHostGuard": 50},
         "FEED_EXPORT_ENCODING": "utf-8",
     }
@@ -103,37 +132,49 @@ class OrganizationSpider(scrapy.Spider):
 
     async def start(self):
         base = " ".join(filter(None, (self.query, self.location, self.country)))
-        search_phrases = [
-            f"{base} official company website",
-            f"{base} companies contact us",
-            f"{base} businesses official website",
-        ]
         query_context = " ".join((self.query, self.location)).casefold()
         is_real_estate = any(term in query_context for term in (
             "real estate", "realty", "property developer", "property developers",
-            "builder", "builders", "construction", "housing",
+            "builder", "builders", "construction", "housing", "plots", "plotted",
         ))
+        search_phrases = []
         if is_real_estate:
             places = [self.location] if self.location else []
             if "bangalore" in query_context or "bengaluru" in query_context:
-                places.extend(("Bengaluru", "Bangalore"))
+                places.extend(("Bengaluru", "Bangalore", "North Bangalore"))
             places = list(dict.fromkeys(place for place in places if place))
             place = places[0] if places else ""
             search_phrases.extend((
                 f"real estate developers {place} official website",
-                f"property developers builders {place} company contact",
-                f"residential builders {place} official website",
-                f"commercial real estate companies {place} official",
+                f"property developers {place} company website",
+                f"plotted development {place} developers",
+                f"villa plots developers {place} official website",
+                f"builders {place} contact us",
             ))
             for alternate_place in places[1:]:
+                search_phrases.append(f"plotted development {alternate_place} developers")
                 search_phrases.append(f"property developers {alternate_place} official website")
-        search_phrases = list(dict.fromkeys(clean(terms) for terms in search_phrases))
+
+        search_phrases.extend([
+            f"{base} official company website",
+            f"{base} companies contact us",
+            f"{base} businesses official website",
+        ])
+        search_phrases = list(dict.fromkeys(clean(terms) for terms in search_phrases))[:10]
         for index, terms in enumerate(search_phrases):
-            url = "https://lite.duckduckgo.com/lite/?" + urlencode({"q": terms})
+            # Query Bing search
+            bing_url = "https://www.bing.com/search?" + urlencode({"q": terms})
             yield scrapy.Request(
-                url, callback=self.parse_search, errback=self.search_error,
+                bing_url, callback=self.parse_search, errback=self.search_error,
+                headers={"Referer": "https://www.bing.com/"},
+                meta={"search_index": index, "search_page": 0, "search_terms": terms, "search_engine": "bing"}, dont_filter=True,
+            )
+            # Query DuckDuckGo Lite search
+            ddg_url = "https://lite.duckduckgo.com/lite/?" + urlencode({"q": terms})
+            yield scrapy.Request(
+                ddg_url, callback=self.parse_search, errback=self.search_error,
                 headers={"Referer": "https://duckduckgo.com/"},
-                meta={"search_index": index, "search_page": 0, "search_terms": terms}, dont_filter=True,
+                meta={"search_index": index, "search_page": 0, "search_terms": terms, "search_engine": "ddg"}, dont_filter=True,
             )
 
     def search_error(self, failure):
@@ -142,8 +183,21 @@ class OrganizationSpider(scrapy.Spider):
     def parse_search(self, response):
         if response.status >= 400:
             return
+
+        # If DDG displays an anomaly/captcha challenge or returns 202, fallback to Bing
+        if "anomaly-modal" in response.text or response.status == 202:
+            search_terms = response.meta.get("search_terms", "")
+            if search_terms and not response.meta.get("bing_fallback"):
+                bing_url = "https://www.bing.com/search?" + urlencode({"q": search_terms})
+                yield scrapy.Request(
+                    bing_url, callback=self.parse_search, errback=self.search_error,
+                    headers={"Referer": "https://www.bing.com/"},
+                    meta={"search_index": response.meta.get("search_index", 0), "search_page": 0, "search_terms": search_terms, "bing_fallback": True, "search_engine": "bing"},
+                    dont_filter=True,
+                )
+            return
+
         # DDG Lite exposes an explicit next-page form; crawl one additional page
-        # for each query instead of stopping at its first ten links.
         if response.meta.get("search_page", 0) == 0 and not response.meta.get("search_fallback"):
             next_form = response.css("form.next_form")
             if next_form:
@@ -163,16 +217,16 @@ class OrganizationSpider(scrapy.Spider):
                         },
                         dont_filter=True,
                     )
-        candidates = response.css("a.result-link, a.result__a, li.b_algo h2 a")
+        candidates = response.css("a.result-link, a.result__a, li.b_algo h2 a, td.result-snippet a")
         if not candidates:
-            if not response.meta.get("search_fallback"):
-                fallback_url = "https://html.duckduckgo.com/html/?" + urlencode({
-                    "q": response.meta.get("search_terms", ""),
-                })
+            search_terms = response.meta.get("search_terms", "")
+            if search_terms and not response.meta.get("bing_fallback") and response.meta.get("search_engine") != "bing":
+                bing_url = "https://www.bing.com/search?" + urlencode({"q": search_terms})
                 yield scrapy.Request(
-                    fallback_url, callback=self.parse_search, errback=self.search_error,
-                    headers={"Referer": "https://duckduckgo.com/"},
-                    meta={**response.meta, "search_fallback": True}, dont_filter=True,
+                    bing_url, callback=self.parse_search, errback=self.search_error,
+                    headers={"Referer": "https://www.bing.com/"},
+                    meta={"search_index": response.meta.get("search_index", 0), "search_page": 0, "search_terms": search_terms, "bing_fallback": True, "search_engine": "bing"},
+                    dont_filter=True,
                 )
             return
         for link in candidates:
@@ -180,23 +234,30 @@ class OrganizationSpider(scrapy.Spider):
             parsed = urlparse(urljoin(response.url, href))
             if parsed.hostname and parsed.hostname.endswith("bing.com"):
                 wrapped = parse_qs(parsed.query).get("u", [""])[0]
-                if wrapped.startswith("a1"):
-                    try:
-                        href = base64.urlsafe_b64decode(wrapped[2:] + "==").decode("utf-8", errors="ignore")
-                    except (ValueError, UnicodeError):
-                        href = ""
+                href = decode_bing_url(wrapped) or href
             elif parsed.hostname and parsed.hostname.endswith("duckduckgo.com"):
-                href = parse_qs(parsed.query).get("uddg", [""])[0]
+                href = parse_qs(parsed.query).get("uddg", [""])[0] or href
             target = urlparse(href)
             if target.scheme not in {"http", "https"} or not target.hostname:
                 continue
             host = target.hostname.lower()
-            if denied_host(host):
+            if denied_candidate_host(host):
                 continue
             title = clean(" ".join(link.xpath(".//text()").getall()))
-            snippet = clean(" ".join(link.xpath("ancestor::div[contains(@class,'result')]//text()").getall()))
-            if BAD_WORDS.search(title + " " + snippet):
+            snippet = clean(" ".join(link.xpath("ancestor::div[contains(@class,'result')]//text()").getall() or
+                                     link.xpath("ancestor::li//p//text()").getall()))
+            if SPAM_LEAD_WORDS.search(title + " " + snippet):
                 continue
+
+            # If the search result is an aggregator or directory ("Top 10 builders..."), harvest third-party links!
+            if DIRECTORY_WORDS.search(title + " " + snippet):
+                yield scrapy.Request(
+                    target.geturl(), callback=self.parse_directory_seed,
+                    meta={"host": host, "title": title},
+                    errback=self.page_error, dont_filter=True,
+                )
+                continue
+
             path_key = target.path.rstrip("/") or "/"
             candidate_key = f"{target.scheme}://{host}{path_key}"
             if candidate_key in self.seen_candidate_urls:
@@ -215,6 +276,36 @@ class OrganizationSpider(scrapy.Spider):
                 errback=self.page_error, dont_filter=True,
             )
 
+    def parse_directory_seed(self, response):
+        """Extract individual company websites linked from directory and roundup articles."""
+        if not isinstance(response, HtmlResponse) or response.status >= 400:
+            return
+        origin_host = response.meta.get("host", "")
+        for href in response.css("a::attr(href)").getall():
+            url = urljoin(response.url, href).split("#", 1)[0]
+            parsed = urlparse(url)
+            if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+                continue
+            target_host = parsed.hostname.lower()
+            if denied_candidate_host(target_host) or target_host == origin_host:
+                continue
+            path = parsed.path.rstrip("/") or "/"
+            if path != "/" and not CONTACT_PATH.search(path):
+                continue
+            candidate_key = f"{parsed.scheme}://{target_host}{path}"
+            if candidate_key in self.seen_candidate_urls:
+                continue
+            if len(self.candidate_hosts) >= self.max_seed_hosts or self.candidate_page_count >= self.max_candidate_pages:
+                break
+            self.seen_candidate_urls.add(candidate_key)
+            self.candidate_hosts[target_host] = self.candidate_hosts.get(target_host, 0) + 1
+            self.candidate_page_count += 1
+            yield scrapy.Request(
+                candidate_key, callback=self.parse_company,
+                meta={"host": target_host, "title": ""},
+                errback=self.page_error, dont_filter=True,
+            )
+
     def page_error(self, failure):
         self.logger.debug("Page failed: %s", failure.value)
 
@@ -223,7 +314,7 @@ class OrganizationSpider(scrapy.Spider):
             return
         host = response.meta["host"]
         page = self.extract_page(response)
-        if BAD_WORDS.search(page["text"][:1800]):
+        if SPAM_LEAD_WORDS.search(page["text"][:1800]):
             return
         item = self.make_item(response, page)
         if item:
@@ -248,7 +339,7 @@ class OrganizationSpider(scrapy.Spider):
         if not isinstance(response, HtmlResponse) or response.status >= 400:
             return
         page = self.extract_page(response)
-        if BAD_WORDS.search(page["text"][:1800]):
+        if SPAM_LEAD_WORDS.search(page["text"][:1800]):
             return
         item = self.make_item(response, page, response.meta.get("title", ""))
         if item:
@@ -339,10 +430,13 @@ class OrganizationSpider(scrapy.Spider):
         phone = page["phone"]
         company = page["name"] or fallback_name or response.meta.get("title", "")
         company = re.sub(r"^(contact\s+us|about\s+us|home)\s*[|:–—-]\s*", "", company, flags=re.I)
-        company = re.sub(r"\s*[|–—-]\s*(home|contact|about|official website).*$", "", company, flags=re.I).strip()
+        company = re.sub(r"\s*[|–—-]\s*(home|contact|about|official website|bangalore|bengaluru|real estate).*$", "", company, flags=re.I).strip()
         if company.casefold() in {"contact", "contact us", "about", "about us", "us", "home"}:
             company = fallback_name or response.meta.get("title", "")
-        if not company or BAD_WORDS.search(company):
+        if not company or SPAM_LEAD_WORDS.search(company):
+            host_label = parsed.netloc.removeprefix("www.").split(".")[0]
+            company = host_label.replace("-", " ").title() if host_label else ""
+        if not company or SPAM_LEAD_WORDS.search(company):
             return None
         return {
             "companyName": company[:240], "description": page["description"],

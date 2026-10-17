@@ -887,7 +887,7 @@ async def search_companies(query: str, location: str = "", country: str = ""):
                 stderr=asyncio.subprocess.PIPE,
             )
             try:
-                _, stderr = await asyncio.wait_for(process.communicate(), timeout=19)
+                _, stderr = await asyncio.wait_for(process.communicate(), timeout=32)
             except asyncio.TimeoutError:
                 process.kill()
                 await process.wait()
