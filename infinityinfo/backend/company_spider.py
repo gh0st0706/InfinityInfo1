@@ -29,7 +29,7 @@ DENY_HOSTS = {
     "urbancompany.com", "justdial.com", "nobroker.in", "sulekha.com", "indiamart.com",
     "scribd.com", "slideshare.net", "issuu.com", "docplayer.net", "truedirectory.co",
     "aeroleads.com", "realestateindia.com", "99acres.com", "magicbricks.com",
-    "housing.com", "proptiger.com", "commonfloor.com",
+    "housing.com", "proptiger.com", "commonfloor.com", "realestateindiaonline.com",
 }
 BAD_WORDS = re.compile(
     r"\b(email lists?|mailing lists?|buy leads|lead generation service|prospect lists?|"
@@ -74,8 +74,8 @@ class PublicHostGuard:
 
 class OrganizationSpider(scrapy.Spider):
     name = "infinityinfo_organizations"
-    max_seed_hosts = 26
-    max_candidate_pages = 40
+    max_seed_hosts = 36
+    max_candidate_pages = 55
 
     custom_settings = {
         "ROBOTSTXT_OBEY": True,

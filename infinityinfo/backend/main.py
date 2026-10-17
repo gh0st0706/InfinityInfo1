@@ -925,7 +925,7 @@ async def search_companies(query: str, location: str = "", country: str = ""):
             float(company.get("confidenceScore", 0)),
         ),
         reverse=True,
-    )[:25]
+    )[:30]
 
     payload = {
         "total": len(results),
