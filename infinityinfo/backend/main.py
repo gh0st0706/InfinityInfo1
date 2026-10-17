@@ -918,7 +918,14 @@ async def search_companies(query: str, location: str = "", country: str = ""):
         if re.search(r"contact|about|team|staff", company.get("sourceUrl", ""), re.I):
             existing["sourceUrl"] = company["sourceUrl"]
 
-    results = list(results_by_host.values())[:10]
+    results = sorted(
+        results_by_host.values(),
+        key=lambda company: (
+            bool(company.get("email") or company.get("phone")),
+            float(company.get("confidenceScore", 0)),
+        ),
+        reverse=True,
+    )[:25]
 
     payload = {
         "total": len(results),

@@ -15,6 +15,11 @@ from scrapy.exceptions import IgnoreRequest
 from scrapy.http import HtmlResponse
 from scrapy.utils.project import get_project_settings
 
+try:
+    import phonenumbers
+except ImportError:
+    phonenumbers = None
+
 
 DENY_HOSTS = {
     "apollo.io", "zoominfo.com", "lusha.com", "rocketreach.co", "seamless.ai",
@@ -22,11 +27,14 @@ DENY_HOSTS = {
     "yelp.com", "mapquest.com", "crunchbase.com", "linkedin.com", "facebook.com",
     "instagram.com", "x.com", "wikipedia.org", "clutch.co", "bbb.org",
     "urbancompany.com", "justdial.com", "nobroker.in", "sulekha.com", "indiamart.com",
-    "scribd.com", "slideshare.net", "issuu.com", "docplayer.net",
+    "scribd.com", "slideshare.net", "issuu.com", "docplayer.net", "truedirectory.co",
+    "aeroleads.com", "realestateindia.com", "99acres.com", "magicbricks.com",
+    "housing.com", "proptiger.com", "commonfloor.com",
 }
 BAD_WORDS = re.compile(
     r"\b(email lists?|mailing lists?|buy leads|lead generation service|prospect lists?|"
-    r"contact database|business data|data provider|directory|yellow pages)\b", re.I,
+    r"contact databases?|business data provider|business directories|yellow pages|"
+    r"top\s+\d+\s+(?:real estate\s+)?(?:companies|builders|developers))\b", re.I,
 )
 EMAIL_RE = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.I)
 PHONE_RE = re.compile(r"(?<!\w)(?:\+?\d[\d\s()./-]{7,}\d)(?!\w)")
@@ -66,13 +74,16 @@ class PublicHostGuard:
 
 class OrganizationSpider(scrapy.Spider):
     name = "infinityinfo_organizations"
+    max_seed_hosts = 26
+    max_candidate_pages = 40
 
     custom_settings = {
         "ROBOTSTXT_OBEY": True,
-        "DOWNLOAD_TIMEOUT": 5,
+        "DOWNLOAD_TIMEOUT": 3,
+        "CLOSESPIDER_TIMEOUT": 16,
         "DOWNLOAD_MAXSIZE": 500_000,
         "DOWNLOAD_WARNSIZE": 350_000,
-        "CONCURRENT_REQUESTS": 8,
+        "CONCURRENT_REQUESTS": 18,
         "CONCURRENT_REQUESTS_PER_DOMAIN": 2,
         "RETRY_ENABLED": False,
         "REDIRECT_MAX_TIMES": 3,
@@ -86,13 +97,24 @@ class OrganizationSpider(scrapy.Spider):
     def __init__(self, query="", location="", country="", *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.query, self.location, self.country = query, location, country
-        self.seen_hosts = set()
+        self.seen_candidate_urls = set()
+        self.candidate_hosts = {}
+        self.candidate_page_count = 0
 
     async def start(self):
-        terms = " ".join(filter(None, (self.query, self.location, self.country, 'business "contact" -directory -"email list"')))
-        url = "https://lite.duckduckgo.com/lite/?" + urlencode({"q": terms})
-        yield scrapy.Request(url, callback=self.parse_search, errback=self.search_error,
-                             headers={"Referer": "https://duckduckgo.com/"}, dont_filter=True)
+        base = " ".join(filter(None, (self.query, self.location, self.country)))
+        search_phrases = (
+            f"{base} official company website",
+            f"{base} companies contact us",
+            f"{base} leading firms builders developers",
+        )
+        for index, terms in enumerate(search_phrases):
+            url = "https://lite.duckduckgo.com/lite/?" + urlencode({"q": terms})
+            yield scrapy.Request(
+                url, callback=self.parse_search, errback=self.search_error,
+                headers={"Referer": "https://duckduckgo.com/"},
+                meta={"search_index": index, "search_page": 0}, dont_filter=True,
+            )
 
     def search_error(self, failure):
         self.logger.warning("Search failed: %s", failure.value)
@@ -100,6 +122,23 @@ class OrganizationSpider(scrapy.Spider):
     def parse_search(self, response):
         if response.status >= 400:
             return
+        # DDG Lite exposes an explicit next-page form; crawl one additional page
+        # for each query instead of stopping at its first ten links.
+        if response.meta.get("search_page", 0) == 0:
+            next_form = response.css("form.next_form")
+            if next_form:
+                form_data = {
+                    field.attrib["name"]: field.attrib.get("value", "")
+                    for field in next_form[0].css("input[name]")
+                }
+                if form_data.get("vqd"):
+                    yield scrapy.FormRequest(
+                        url=response.url, formdata=form_data,
+                        callback=self.parse_search, errback=self.search_error,
+                        headers={"Referer": response.url},
+                        meta={"search_index": response.meta.get("search_index", 0), "search_page": 1},
+                        dont_filter=True,
+                    )
         candidates = response.css("a.result-link, a.result__a, li.b_algo h2 a")
         for link in candidates:
             href = link.attrib.get("href", "")
@@ -117,20 +156,29 @@ class OrganizationSpider(scrapy.Spider):
             if target.scheme not in {"http", "https"} or not target.hostname:
                 continue
             host = target.hostname.lower()
-            if host in self.seen_hosts or denied_host(host):
+            if denied_host(host):
                 continue
-            self.seen_hosts.add(host)
             title = clean(" ".join(link.xpath(".//text()").getall()))
             snippet = clean(" ".join(link.xpath("ancestor::div[contains(@class,'result')]//text()").getall()))
             if BAD_WORDS.search(title + " " + snippet):
                 continue
+            path_key = target.path.rstrip("/") or "/"
+            candidate_key = f"{target.scheme}://{host}{path_key}"
+            if candidate_key in self.seen_candidate_urls:
+                continue
+            host_count = self.candidate_hosts.get(host, 0)
+            if host_count >= 2 or (host_count and not CONTACT_PATH.search(target.path)):
+                continue
+            if len(self.candidate_hosts) >= self.max_seed_hosts or self.candidate_page_count >= self.max_candidate_pages:
+                continue
+            self.seen_candidate_urls.add(candidate_key)
+            self.candidate_hosts[host] = host_count + 1
+            self.candidate_page_count += 1
             yield scrapy.Request(
                 target.geturl(), callback=self.parse_company,
                 meta={"host": host, "title": title, "snippet": snippet},
                 errback=self.page_error, dont_filter=True,
             )
-            if len(self.seen_hosts) >= 14:
-                break
 
     def page_error(self, failure):
         self.logger.debug("Page failed: %s", failure.value)
@@ -140,10 +188,10 @@ class OrganizationSpider(scrapy.Spider):
             return
         host = response.meta["host"]
         page = self.extract_page(response)
-        if BAD_WORDS.search(page["text"][:9000]):
+        if BAD_WORDS.search(page["text"][:1800]):
             return
         item = self.make_item(response, page)
-        if item and (item["email"] or item["phone"]):
+        if item:
             yield item
         count = 0
         seen = set()
@@ -158,28 +206,45 @@ class OrganizationSpider(scrapy.Spider):
             yield scrapy.Request(url, callback=self.parse_contact, errback=self.page_error,
                                  meta={"host": host, "root": response.url, "title": item["companyName"] if item else response.meta.get("title", "")})
             count += 1
-            if count >= 2:
+            if count >= 3:
                 break
 
     def parse_contact(self, response):
         if not isinstance(response, HtmlResponse) or response.status >= 400:
             return
         page = self.extract_page(response)
-        if BAD_WORDS.search(page["text"][:9000]):
+        if BAD_WORDS.search(page["text"][:1800]):
             return
         item = self.make_item(response, page, response.meta.get("title", ""))
-        if item and (item["email"] or item["phone"]):
+        if item:
             yield item
 
     def extract_page(self, response):
         text = clean(" ".join(response.xpath("//body//text()[not(ancestor::script or ancestor::style or ancestor::noscript)]").getall()))[:25000]
-        emails = {email.lower().rstrip(".,;:") for email in EMAIL_RE.findall(response.text)}
+        emails = {email.lower().rstrip(".,;:") for email in EMAIL_RE.findall(text)}
         emails.update(email.lower() for href in response.css("a[href^='mailto:']::attr(href)").getall()
                       for email in EMAIL_RE.findall(href))
         phones = []
         phones.extend(response.css("a[href^='tel:']::attr(href)").re(r"tel:([^?]+)"))
-        phones.extend(PHONE_RE.findall(text))
-        phone = next((clean(value) for value in phones if 9 <= len(re.sub(r"\D", "", value)) <= 15), "")
+        if phonenumbers:
+            phones.extend(match.raw_string for match in phonenumbers.PhoneNumberMatcher(text, self.phone_region()))
+        else:
+            phones.extend(PHONE_RE.findall(text))
+        phone = ""
+        for candidate in phones:
+            if phonenumbers:
+                try:
+                    parsed_phone = phonenumbers.parse(candidate, self.phone_region())
+                except phonenumbers.NumberParseException:
+                    continue
+                if phonenumbers.is_possible_number(parsed_phone):
+                    phone = phonenumbers.format_number(parsed_phone, phonenumbers.PhoneNumberFormat.INTERNATIONAL)
+                    break
+            else:
+                digits = re.sub(r"\D", "", candidate)
+                if 10 <= len(digits) <= 15:
+                    phone = clean(candidate)
+                    break
         name = clean(response.css("meta[property='og:site_name']::attr(content)").get() or
                      response.css("meta[name='application-name']::attr(content)").get() or
                      response.css("title::text").get() or response.css("h1::text").get())
@@ -223,25 +288,34 @@ class OrganizationSpider(scrapy.Spider):
                 "description": description, "address": address,
                 "address_parts": address_parts, "links": response.css("a::attr(href)").getall()}
 
+    def phone_region(self):
+        regions = {
+            "india": "IN", "united states": "US", "usa": "US", "united kingdom": "GB",
+            "uk": "GB", "canada": "CA", "australia": "AU", "uae": "AE", "united arab emirates": "AE",
+            "singapore": "SG", "germany": "DE", "france": "FR", "ireland": "IE",
+        }
+        return regions.get(self.country.casefold(), None)
+
     def make_item(self, response, page, fallback_name=""):
         parsed = urlparse(response.meta.get("root", response.url))
         website = f"{parsed.scheme}://{parsed.netloc}"
         email = next((value for value in sorted(page["emails"])
                       if not any(part in value for part in ("example.com", "wixpress.com", "sentry.io"))), "")
         phone = page["phone"]
-        if not email and not phone:
-            return None
         company = page["name"] or fallback_name or response.meta.get("title", "")
         company = re.sub(r"^(contact\s+us|about\s+us|home)\s*[|:–—-]\s*", "", company, flags=re.I)
         company = re.sub(r"\s*[|–—-]\s*(home|contact|about|official website).*$", "", company, flags=re.I).strip()
-        if not company or company.casefold() in {"contact", "contact us", "about", "about us", "us", "home"} or BAD_WORDS.search(company):
+        if company.casefold() in {"contact", "contact us", "about", "about us", "us", "home"}:
+            company = fallback_name or response.meta.get("title", "")
+        if not company or BAD_WORDS.search(company):
             return None
         return {
             "companyName": company[:240], "description": page["description"],
             "address": page["address"], **page["address_parts"], "email": email, "phone": phone,
             "emails": sorted(page["emails"]), "website": website,
             "locationType": "Unverified", "source": "Organization website",
-            "sourceUrl": response.url, "confidenceScore": 0.85 if page["address"] or email else 0.7,
+            "sourceUrl": response.url,
+            "confidenceScore": 0.85 if page["address"] or email else 0.65 if phone else 0.5,
         }
 
 
