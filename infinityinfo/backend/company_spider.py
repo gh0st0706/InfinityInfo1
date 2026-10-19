@@ -113,7 +113,7 @@ class OrganizationSpider(scrapy.Spider):
     custom_settings = {
         "ROBOTSTXT_OBEY": False,
         "DOWNLOAD_TIMEOUT": 6,
-        "CLOSESPIDER_TIMEOUT": 28,
+        "CLOSESPIDER_TIMEOUT": 18,
         "DOWNLOAD_MAXSIZE": 2_500_000,
         "DOWNLOAD_WARNSIZE": 1_800_000,
         "CONCURRENT_REQUESTS": 24,
