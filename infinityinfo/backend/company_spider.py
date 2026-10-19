@@ -34,6 +34,11 @@ DENY_HOSTS = {
 SEARCH_AND_PORTAL_HOSTS = {
     "google.com", "bing.com", "duckduckgo.com", "yahoo.com", "msn.com",
     "microsoft.com", "youtube.com", "pinterest.com", "reddit.com",
+    "merriam-webster.com", "dictionary.cambridge.org", "thefreedictionary.com",
+    "vocabulary.com", "britannica.com", "wikihow.com", "realmadrid.com",
+    "flipkart.com", "amazon.com", "myntra.com", "ajio.com", "zara.com", "meesho.com",
+    "nykaa.com", "imdb.com", "rottentomatoes.com", "f6s.com", "revenuebase.ai",
+    "xhamster.com", "xhamster.desi", "xhaccess.com", "pornhub.com", "xvideos.com",
 }
 SPAM_LEAD_WORDS = re.compile(
     r"\b(email lists?|mailing lists?|buy leads|buy database|lead generation service|prospect lists?|"
@@ -102,16 +107,16 @@ class PublicHostGuard:
 
 class OrganizationSpider(scrapy.Spider):
     name = "infinityinfo_organizations"
-    max_seed_hosts = 50
-    max_candidate_pages = 75
+    max_seed_hosts = 120
+    max_candidate_pages = 220
 
     custom_settings = {
         "ROBOTSTXT_OBEY": False,
         "DOWNLOAD_TIMEOUT": 6,
         "CLOSESPIDER_TIMEOUT": 28,
-        "DOWNLOAD_MAXSIZE": 500_000,
-        "DOWNLOAD_WARNSIZE": 350_000,
-        "CONCURRENT_REQUESTS": 20,
+        "DOWNLOAD_MAXSIZE": 2_500_000,
+        "DOWNLOAD_WARNSIZE": 1_800_000,
+        "CONCURRENT_REQUESTS": 24,
         "CONCURRENT_REQUESTS_PER_DOMAIN": 2,
         "RETRY_ENABLED": True,
         "RETRY_TIMES": 1,
@@ -146,21 +151,24 @@ class OrganizationSpider(scrapy.Spider):
             place = places[0] if places else ""
             search_phrases.extend((
                 f"real estate developers {place} official website",
-                f"property developers {place} company website",
+                f"top real estate developers {place} official",
+                f"property developers builders {place} company contact",
+                f"residential builders {place} official website",
+                f"commercial real estate companies {place} official",
                 f"plotted development {place} developers",
                 f"villa plots developers {place} official website",
                 f"builders {place} contact us",
             ))
             for alternate_place in places[1:]:
-                search_phrases.append(f"plotted development {alternate_place} developers")
                 search_phrases.append(f"property developers {alternate_place} official website")
+                search_phrases.append(f"plotted development {alternate_place} developers")
 
         search_phrases.extend([
             f"{base} official company website",
             f"{base} companies contact us",
             f"{base} businesses official website",
         ])
-        search_phrases = list(dict.fromkeys(clean(terms) for terms in search_phrases))[:10]
+        search_phrases = list(dict.fromkeys(clean(terms) for terms in search_phrases))[:16]
         for index, terms in enumerate(search_phrases):
             # Query Bing search
             bing_url = "https://www.bing.com/search?" + urlencode({"q": terms})

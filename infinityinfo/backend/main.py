@@ -719,7 +719,7 @@ class PublicSearchResultParser(html.parser.HTMLParser):
 
 
 COMPANY_SEARCH_CACHE = {}
-COMPANY_SEARCH_CACHE_TTL_SECONDS = 1800
+COMPANY_SEARCH_CACHE_TTL_SECONDS = 60
 
 
 def public_search_result_url(href):
