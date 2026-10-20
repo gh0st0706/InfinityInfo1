@@ -8,7 +8,7 @@
 }
 
 .csv-profiler-card {
-  max-width: 900px;
+  max-width: 1100px;
   margin: 0 auto;
   padding: clamp(18px, 3vw, 30px);
   border: 1px solid #e5e8ef;
@@ -46,16 +46,11 @@
 }
 
 .csv-profiler-result {
-  max-height: 520px;
   margin: 20px 0 0;
-  padding: 16px;
-  overflow: auto;
-  border-radius: 10px;
-  background: #f5f6fa;
   color: #252f4a;
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.6;
-  white-space: pre-wrap;
+  white-space: normal;
   overflow-wrap: anywhere;
 }
 
@@ -63,8 +58,127 @@
   display: none;
 }
 
+.csv-profiler-message {
+  padding: 16px;
+  border-radius: 10px;
+  background: #f5f6fa;
+}
+
+.csv-report h3 {
+  margin: 0 0 6px;
+  color: #252f4a;
+  font-size: 24px;
+}
+
+.csv-report-intro {
+  margin: 0 0 22px;
+  color: #697386;
+}
+
+.csv-report-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.csv-report-stat {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid #e5e8ef;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.csv-report-stat span {
+  display: block;
+  margin-bottom: 6px;
+  color: #697386;
+  font-size: 13px;
+}
+
+.csv-report-stat strong {
+  color: #252f4a;
+  font-size: 26px;
+  overflow-wrap: anywhere;
+}
+
+.csv-report-section {
+  margin-top: 28px;
+}
+
+.csv-report-section h4 {
+  margin: 0 0 12px;
+  color: #252f4a;
+  font-size: 18px;
+}
+
+.csv-report-warnings {
+  margin: 0;
+  padding: 16px 16px 16px 36px;
+  border: 1px solid #f0dfb4;
+  border-radius: 10px;
+  background: #fffaf0;
+  color: #604b1f;
+}
+
+.csv-report-warnings li + li {
+  margin-top: 7px;
+}
+
+.csv-report-clean {
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px solid #cfe8d7;
+  border-radius: 10px;
+  color: #245c38;
+  background: #f4fbf6;
+}
+
+.csv-report-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid #e5e8ef;
+  border-radius: 10px;
+}
+
+.csv-report-table-wrap table {
+  width: 100%;
+  margin: 0;
+  border-collapse: collapse;
+  color: #252f4a;
+  font-size: 13px;
+}
+
+.csv-report-table-wrap th,
+.csv-report-table-wrap td {
+  padding: 11px 13px;
+  border-bottom: 1px solid #e9ecf2;
+  text-align: left;
+  vertical-align: top;
+  white-space: nowrap;
+}
+
+.csv-report-table-wrap th {
+  background: #f5f6fa;
+  font-weight: 600;
+}
+
+.csv-report-table-wrap tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+@media (max-width: 700px) {
+  .csv-report-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 575px) {
   .csv-profiler-form .main-button {
     width: 100%;
+  }
+
+  .csv-report-stat strong {
+    font-size: 22px;
   }
 }
