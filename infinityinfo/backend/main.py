@@ -22,6 +22,7 @@ import dns.asyncresolver
 import phonenumbers
 
 import httpx
+import pandas as pd
 from dotenv import dotenv_values, load_dotenv
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -1200,3 +1201,37 @@ async def upload_file(file: UploadFile = File(...)):
                 f'attachment; filename="{output_filename}"'
         },
     )
+
+
+@app.post("/api/profile")
+async def profile_csv(file: UploadFile = File(...)):
+    if not (file.filename or "").lower().endswith(".csv"):
+        raise HTTPException(status_code=400, detail="Upload a CSV file")
+
+    raw = await file.read()
+    if len(raw) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail="File must be 4 MB or smaller on Vercel",
+        )
+
+    try:
+        df = pd.read_csv(io.BytesIO(raw))
+        sample = df.head(5).fillna("").to_dict("records")
+        return {
+            "rows": len(df),
+            "columns": len(df.columns),
+            "duplicates": int(df.duplicated().sum()),
+            "profile": [
+                {
+                    "name": str(column),
+                    "type": str(df[column].dtype),
+                    "missing": int(df[column].isna().sum()),
+                    "unique": int(df[column].nunique()),
+                }
+                for column in df.columns
+            ],
+            "sample": sample,
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Could not read CSV: {exc}") from exc

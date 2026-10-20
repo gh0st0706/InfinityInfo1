@@ -1,5 +1,6 @@
 fastapi
 httpx
+pandas
 scrapy==2.19.0
 dnspython
 phonenumbers

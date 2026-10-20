@@ -21,6 +21,7 @@
     <link rel="stylesheet" href="assets/css/fontawesome.css">
     <link rel="stylesheet" href="assets/css/style.css?v=editable-fields-20261016">
     <link rel="stylesheet" href="assets/css/company-finder.css?v=company-search-click-20261017">
+    <link rel="stylesheet" href="assets/css/csv-profiler.css">
     <link rel="stylesheet" href="assets/css/animated.css">
     <link rel="stylesheet" href="assets/css/owl.css">
     <link rel="stylesheet" href="assets/phone-checker/phone-checker.css">
@@ -81,6 +82,7 @@
               <li class="scroll-to-section"><a href="#services">Services</a></li>
               <li class="scroll-to-section"><a href="#company-finder">Company Finder</a></li>
               <li class="scroll-to-section"><a href="#email-lookup">Email Appending</a></li>
+              <li class="scroll-to-section"><a href="#csv-profiler">CSV Profiler</a></li>
               <li class="scroll-to-section"><a href="#phone-checker">Phone Checker</a></li>
               <li class="scroll-to-section"><a href="#contact">Contact</a></li> 
               <li class="scroll-to-section"><div class="border-first-button"><a href="#contact">Free Quote</a></div></li> 
@@ -394,6 +396,25 @@
     </div>
   </section>
 
+  <section id="csv-profiler" class="csv-profiler-section section">
+    <div class="container">
+      <div class="section-heading text-center">
+        <h6>CSV Profiler</h6>
+        <h4>Inspect Your <em>Data</em></h4>
+        <div class="line-dec"></div>
+        <p>Upload a CSV to review its columns, missing values, unique values, and sample rows.</p>
+      </div>
+      <div class="csv-profiler-card">
+        <form id="csv-profile-form" class="csv-profiler-form">
+          <label for="csv-profile-file">Choose a CSV file</label>
+          <input id="csv-profile-file" name="file" type="file" accept=".csv,text/csv" required>
+          <button id="csv-profile-submit" class="main-button" type="submit">Inspect data</button>
+        </form>
+        <pre id="csv-profile-result" class="csv-profiler-result" role="status" aria-live="polite"></pre>
+      </div>
+    </div>
+  </section>
+
   <section id="phone-checker" class="phone-checker-section section">
     <div class="container">
       <div class="section-heading text-center">
@@ -587,6 +608,7 @@
   <script src="assets/js/custom.js"></script>
   <script src="assets/js/deployment-config.js"></script>
   <script src="assets/js/backend.js?v=email-tool-ready-20261016"></script>
+  <script src="assets/js/csv-profiler.js"></script>
   <script src="assets/js/company-finder.js?v=company-finder-20261016"></script>
   <script src="assets/js/phone-checker-fallback.js"></script>
   <script src="assets/phone-checker/phone-checker.iife.js"></script>
